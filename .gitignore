@@ -1,0 +1,21 @@
+.vscode/
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+dist/
+build/
+*.egg-info/
+
+# Ignore local data and models
+data/
+models/
+
+# coding agent
+context/
