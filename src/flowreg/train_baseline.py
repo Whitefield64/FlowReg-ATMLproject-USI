@@ -18,6 +18,7 @@ from wandb.integration.sb3 import WandbCallback
 
 from flowreg.config import load_yaml_config
 from flowreg.envs import make_dummy_vec_env
+from flowreg.policies import build_policy_kwargs
 
 
 def _timestamp() -> str:
@@ -85,6 +86,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
         )
 
     ppo_config = dict(config.get("ppo", {}))
+    policy_kwargs = build_policy_kwargs(config)
     model = PPO(
         config.get("policy", "MlpPolicy"),
         vec_env,
@@ -92,6 +94,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
         device=config.get("device", "cpu"),
         verbose=int(config.get("verbose", 0)),
         tensorboard_log=str(tensorboard_dir),
+        policy_kwargs=policy_kwargs,
         **ppo_config,
     )
     model.learn(
@@ -120,7 +123,7 @@ def main() -> None:
     parser.add_argument("--wandb", choices=["disabled", "offline", "online"], default=None)
     args = parser.parse_args()
 
-    load_dotenv(override=False)
+    load_dotenv(override=True)
     config = load_yaml_config(args.config)
     if args.timesteps is not None:
         config["total_timesteps"] = args.timesteps
@@ -135,4 +138,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

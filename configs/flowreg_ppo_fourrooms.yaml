@@ -1,4 +1,4 @@
-run_name: baseline_ppo_fourrooms_debug
+run_name: flowreg_ppo_fourrooms
 env_id: MiniGrid-FourRooms-v0
 seed: 0
 total_timesteps: 1000000
@@ -22,6 +22,21 @@ ppo:
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
+flowreg:
+  enabled: true
+  lambda_flow: 1.0
+  representation: features
+  loss_reduction: paper
+  sequence_length: 5
+  batch_size: 32
+  update_freq: 20
+  update_unit: optimizer_step
+  learning_rate: 0.0003
+  hidden_dim: 64
+  rtol: 0.0001
+  atol: 0.00001
+  time_sampling: index
 eval:
   n_eval_episodes: 10
   deterministic: true
+

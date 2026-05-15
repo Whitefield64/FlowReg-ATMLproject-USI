@@ -26,10 +26,22 @@ class FlowRegPPO(PPO):
         flow_hidden_dim: int = 64,
         flow_rtol: float = 1e-4,
         flow_atol: float = 1e-5,
+        flow_representation: str = "features",
+        flow_loss_reduction: str = "paper",
+        flow_update_unit: str = "optimizer_step",
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        latent_dim = int(self.policy.mlp_extractor.latent_dim_pi)
+        if flow_representation == "features":
+            latent_dim = int(self.policy.features_extractor.features_dim)
+        elif flow_representation == "actor_latent":
+            latent_dim = int(self.policy.mlp_extractor.latent_dim_pi)
+        else:
+            raise ValueError("flow_representation must be one of: features, actor_latent")
+        if flow_loss_reduction not in {"paper", "mse_mean"}:
+            raise ValueError("flow_loss_reduction must be one of: paper, mse_mean")
+        if flow_update_unit != "optimizer_step":
+            raise ValueError("flow_update_unit currently supports only: optimizer_step")
         self.flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=flow_hidden_dim).to(self.device)
         self.flow_optimizer = th.optim.Adam(self.flow_model.parameters(), lr=flow_learning_rate)
         self.lambda_flow = lambda_flow
@@ -38,6 +50,9 @@ class FlowRegPPO(PPO):
         self.flow_update_freq = flow_update_freq
         self.flow_rtol = flow_rtol
         self.flow_atol = flow_atol
+        self.flow_representation = flow_representation
+        self.flow_loss_reduction = flow_loss_reduction
+        self.flow_update_unit = flow_update_unit
         self.flow_step = 0
         self.flow_rng = np.random.default_rng(self.seed)
         self._flow_observations: np.ndarray | None = None
@@ -66,6 +81,8 @@ class FlowRegPPO(PPO):
             device=self.device,
             rtol=self.flow_rtol,
             atol=self.flow_atol,
+            representation=self.flow_representation,
+            loss_reduction=self.flow_loss_reduction,
         )
 
     def train(self) -> None:
@@ -86,6 +103,8 @@ class FlowRegPPO(PPO):
         pg_losses, value_losses = [], []
         clip_fractions = []
         flow_losses = []
+        flow_losses_paper_scaled = []
+        flow_losses_mse_mean = []
         path_lengths = []
         net_displacements = []
         acceleration_energies = []
@@ -135,6 +154,8 @@ class FlowRegPPO(PPO):
                 if flow_loss is not None:
                     loss = loss + self.lambda_flow * flow_loss
                     flow_losses.append(flow_metrics["flow_loss"])
+                    flow_losses_paper_scaled.append(flow_metrics["flow_loss_paper_scaled"])
+                    flow_losses_mse_mean.append(flow_metrics["flow_loss_mse_mean"])
                     path_lengths.append(flow_metrics["path_length"])
                     net_displacements.append(flow_metrics["net_displacement"])
                     acceleration_energies.append(flow_metrics["acceleration_energy"])
@@ -182,6 +203,8 @@ class FlowRegPPO(PPO):
 
         if flow_losses:
             self.logger.record("Loss/FlowReg", float(np.mean(flow_losses)))
+            self.logger.record("Loss/FlowReg_PaperScaled", float(np.mean(flow_losses_paper_scaled)))
+            self.logger.record("Loss/FlowReg_MSEMean", float(np.mean(flow_losses_mse_mean)))
             self.logger.record("Latent/Path_Length", float(np.mean(path_lengths)))
             self.logger.record("Latent/Net_Displacement", float(np.mean(net_displacements)))
             self.logger.record("Latent/Acceleration_Energy", float(np.mean(acceleration_energies)))

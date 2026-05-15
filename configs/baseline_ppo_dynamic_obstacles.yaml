@@ -1,5 +1,5 @@
-run_name: baseline_ppo_fourrooms_debug
-env_id: MiniGrid-FourRooms-v0
+run_name: baseline_ppo_dynamic_obstacles
+env_id: MiniGrid-Dynamic-Obstacles-16x16-v0
 seed: 0
 total_timesteps: 1000000
 n_envs: 4
@@ -25,3 +25,4 @@ ppo:
 eval:
   n_eval_episodes: 10
   deterministic: true
+

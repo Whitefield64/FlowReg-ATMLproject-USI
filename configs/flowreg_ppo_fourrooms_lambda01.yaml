@@ -6,7 +6,11 @@ n_envs: 4
 policy: MlpPolicy
 wrapper: img_flatten
 device: cpu
-wandb_mode: disabled
+wandb_mode: online
+feature_extractor:
+  name: minigrid_mlp
+  features_dim: 64
+  hidden_dim: 128
 ppo:
   learning_rate: 0.0003
   n_steps: 256
@@ -21,9 +25,12 @@ ppo:
 flowreg:
   enabled: true
   lambda_flow: 0.1
+  representation: features
+  loss_reduction: paper
   sequence_length: 5
   batch_size: 32
   update_freq: 20
+  update_unit: optimizer_step
   learning_rate: 0.0003
   hidden_dim: 64
   rtol: 0.0001

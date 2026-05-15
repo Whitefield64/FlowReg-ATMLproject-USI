@@ -18,6 +18,7 @@ from wandb.integration.sb3 import WandbCallback
 from flowreg.config import load_yaml_config
 from flowreg.envs import make_dummy_vec_env
 from flowreg.flowreg_ppo import FlowRegPPO
+from flowreg.policies import build_policy_kwargs
 from flowreg.train_baseline import _safe_wandb_mode
 
 
@@ -79,6 +80,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
 
     ppo_config = dict(config.get("ppo", {}))
     flow_config = dict(config.get("flowreg", {}))
+    policy_kwargs = build_policy_kwargs(config)
     model = FlowRegPPO(
         config.get("policy", "MlpPolicy"),
         vec_env,
@@ -94,6 +96,10 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
         flow_hidden_dim=int(flow_config.get("hidden_dim", 64)),
         flow_rtol=float(flow_config.get("rtol", 1e-4)),
         flow_atol=float(flow_config.get("atol", 1e-5)),
+        flow_representation=str(flow_config.get("representation", "features")),
+        flow_loss_reduction=str(flow_config.get("loss_reduction", "paper")),
+        flow_update_unit=str(flow_config.get("update_unit", "optimizer_step")),
+        policy_kwargs=policy_kwargs,
         **ppo_config,
     )
     model.learn(
@@ -124,7 +130,7 @@ def main() -> None:
     parser.add_argument("--wandb", choices=["disabled", "offline", "online"], default=None)
     args = parser.parse_args()
 
-    load_dotenv(override=False)
+    load_dotenv(override=True)
     config = load_yaml_config(args.config)
     if args.timesteps is not None:
         config["total_timesteps"] = args.timesteps
@@ -139,4 +145,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

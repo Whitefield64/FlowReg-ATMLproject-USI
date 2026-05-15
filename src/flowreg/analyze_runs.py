@@ -16,6 +16,8 @@ from tensorboard.backend.event_processing import event_accumulator
 
 FLOWREG_TAGS = [
     "Loss/FlowReg",
+    "Loss/FlowReg_PaperScaled",
+    "Loss/FlowReg_MSEMean",
     "Latent/Path_Length",
     "Latent/Net_Displacement",
     "Latent/Acceleration_Energy",

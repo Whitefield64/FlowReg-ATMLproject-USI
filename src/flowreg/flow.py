@@ -17,6 +17,7 @@ class FlowTrajectoryBatch:
     """Contiguous observation sequences sampled from an on-policy rollout."""
 
     observations: np.ndarray
+    episode_ids: np.ndarray
     starts: tuple[tuple[int, int], ...]
 
 
@@ -36,20 +37,27 @@ class FlowODE(nn.Module):
         return self.net(z)
 
 
+def episode_ids_from_starts(episode_starts: np.ndarray) -> np.ndarray:
+    """Derive per-env episode ids from SB3 rollout `episode_starts` flags."""
+    if episode_starts.ndim != 2:
+        raise ValueError("episode_starts must have shape (n_steps, n_envs)")
+    return np.cumsum(episode_starts.astype(np.int64), axis=0)
+
+
 def valid_trajectory_starts(episode_starts: np.ndarray, sequence_length: int) -> list[tuple[int, int]]:
-    """Return `(time, env)` starts that do not cross episode boundaries."""
+    """Return `(time, env)` starts whose full window has one episode id."""
     if sequence_length < 2:
         raise ValueError("sequence_length must be at least 2")
     if episode_starts.ndim != 2:
         raise ValueError("episode_starts must have shape (n_steps, n_envs)")
 
+    episode_ids = episode_ids_from_starts(episode_starts)
     n_steps, n_envs = episode_starts.shape
     starts: list[tuple[int, int]] = []
     for env_idx in range(n_envs):
         for step_idx in range(0, n_steps - sequence_length + 1):
-            # The first state may be an episode start. Later states must belong
-            # to the same episode, so episode_starts must be false after index 0.
-            if not episode_starts[step_idx + 1 : step_idx + sequence_length, env_idx].any():
+            window_ids = episode_ids[step_idx : step_idx + sequence_length, env_idx]
+            if np.all(window_ids == window_ids[0]):
                 starts.append((step_idx, env_idx))
     return starts
 
@@ -62,6 +70,7 @@ def sample_flow_trajectories(
     rng: np.random.Generator,
 ) -> FlowTrajectoryBatch | None:
     """Sample contiguous trajectories from SB3 rollout arrays."""
+    episode_ids = episode_ids_from_starts(episode_starts)
     starts = valid_trajectory_starts(episode_starts, sequence_length)
     if not starts:
         return None
@@ -75,7 +84,18 @@ def sample_flow_trajectories(
         ],
         axis=0,
     )
-    return FlowTrajectoryBatch(observations=trajectories, starts=selected)
+    trajectory_episode_ids = np.stack(
+        [
+            episode_ids[step_idx : step_idx + sequence_length, env_idx]
+            for step_idx, env_idx in selected
+        ],
+        axis=0,
+    )
+    return FlowTrajectoryBatch(
+        observations=trajectories,
+        episode_ids=trajectory_episode_ids,
+        starts=selected,
+    )
 
 
 def index_time_grid(sequence_length: int, device: th.device) -> th.Tensor:
@@ -83,8 +103,16 @@ def index_time_grid(sequence_length: int, device: th.device) -> th.Tensor:
     return th.arange(sequence_length, device=device, dtype=th.float32)
 
 
+def feature_latents(policy: nn.Module, observations: th.Tensor) -> th.Tensor:
+    """Return learned state features used as paper-faithful MiniGrid `H_theta`."""
+    features = policy.extract_features(observations)
+    if isinstance(features, tuple):
+        features = features[0]
+    return features
+
+
 def actor_latents(policy: nn.Module, observations: th.Tensor) -> th.Tensor:
-    """Return actor latent vectors used as H_theta for MiniGrid FlowReg."""
+    """Return legacy actor latent vectors for FlowReg ablations."""
     features = policy.extract_features(observations)
     if policy.share_features_extractor:
         latent_pi, _latent_vf = policy.mlp_extractor(features)
@@ -94,6 +122,23 @@ def actor_latents(policy: nn.Module, observations: th.Tensor) -> th.Tensor:
     return latent_pi
 
 
+def policy_latents(policy: nn.Module, observations: th.Tensor, representation: str) -> th.Tensor:
+    """Return the configured latent representation for FlowReg."""
+    if representation == "features":
+        return feature_latents(policy, observations)
+    if representation == "actor_latent":
+        return actor_latents(policy, observations)
+    raise ValueError("representation must be one of: features, actor_latent")
+
+
+def flow_loss_values(latent_path: th.Tensor, ode_path: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+    """Return paper-scaled and PyTorch-MSE FlowReg losses."""
+    squared_error = (latent_path - ode_path).pow(2)
+    paper_scaled = squared_error.sum(dim=-1).mean()
+    mse_mean = F.mse_loss(latent_path, ode_path)
+    return paper_scaled, mse_mean
+
+
 def compute_flow_loss(
     policy: nn.Module,
     flow_model: nn.Module,
@@ -101,12 +146,14 @@ def compute_flow_loss(
     device: th.device,
     rtol: float,
     atol: float,
+    representation: str = "features",
+    loss_reduction: str = "paper",
 ) -> tuple[th.Tensor, dict[str, float]]:
     """Compute full-path FlowReg MSE and latent geometry metrics."""
     batch_size, sequence_length = trajectory_obs.shape[:2]
     flat_obs = trajectory_obs.reshape(batch_size * sequence_length, *trajectory_obs.shape[2:])
     obs_tensor = obs_as_tensor(flat_obs, device)
-    latent_flat = actor_latents(policy, obs_tensor)
+    latent_flat = policy_latents(policy, obs_tensor, representation=representation)
     latent_path = latent_flat.reshape(batch_size, sequence_length, -1)
 
     z0 = latent_path[:, 0, :]
@@ -114,7 +161,14 @@ def compute_flow_loss(
     ode_path = odeint(flow_model, z0, time_grid, rtol=rtol, atol=atol)
     ode_path = ode_path.transpose(0, 1)
 
-    loss = F.mse_loss(latent_path, ode_path)
+    paper_scaled_loss, mse_mean_loss = flow_loss_values(latent_path, ode_path)
+    if loss_reduction == "paper":
+        loss = paper_scaled_loss
+    elif loss_reduction == "mse_mean":
+        loss = mse_mean_loss
+    else:
+        raise ValueError("loss_reduction must be one of: paper, mse_mean")
+
     with th.no_grad():
         diffs = latent_path[:, 1:, :] - latent_path[:, :-1, :]
         path_length = th.linalg.norm(diffs, dim=-1).mean()
@@ -130,10 +184,11 @@ def compute_flow_loss(
         ode_error_drift = th.linalg.norm(ode_path[:, -1, :] - latent_path[:, -1, :], dim=-1).mean()
     metrics = {
         "flow_loss": float(loss.detach().cpu()),
+        "flow_loss_paper_scaled": float(paper_scaled_loss.detach().cpu()),
+        "flow_loss_mse_mean": float(mse_mean_loss.detach().cpu()),
         "path_length": float(path_length.cpu()),
         "net_displacement": float(net_displacement.cpu()),
         "acceleration_energy": float(acceleration_energy.cpu()),
         "ode_error_drift": float(ode_error_drift.cpu()),
     }
     return loss, metrics
-
