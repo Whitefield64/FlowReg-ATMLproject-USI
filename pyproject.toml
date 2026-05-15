@@ -1,0 +1,42 @@
+[project]
+name = "flowreg-atml"
+version = "0.1.0"
+description = "MiniGrid PPO and FlowReg reproducibility project for ATML."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "gymnasium==1.2.3",
+    "minigrid==3.1.0",
+    "numpy>=1.26,<3",
+    "python-dotenv>=1.0.1,<2",
+    "pyyaml>=6.0,<7",
+    "stable-baselines3==2.8.0",
+    "tensorboard>=2.20,<3",
+    "torch==2.12.0",
+    "torchdiffeq==0.2.5",
+    "wandb==0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "ruff>=0.8,<1",
+]
+
+[project.scripts]
+flowreg-analyze-runs = "flowreg.analyze_runs:main"
+flowreg-eval-baseline = "flowreg.eval_baseline:main"
+flowreg-smoke-phase1 = "flowreg.smoke_phase1:main"
+flowreg-train-baseline = "flowreg.train_baseline:main"
+flowreg-train-flowreg = "flowreg.train_flowreg:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

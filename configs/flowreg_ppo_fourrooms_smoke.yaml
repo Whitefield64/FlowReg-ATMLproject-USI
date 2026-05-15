@@ -1,0 +1,35 @@
+run_name: flowreg_ppo_fourrooms_smoke
+env_id: MiniGrid-FourRooms-v0
+seed: 0
+total_timesteps: 20000
+n_envs: 4
+policy: MlpPolicy
+wrapper: img_flatten
+device: cpu
+wandb_mode: disabled
+ppo:
+  learning_rate: 0.0003
+  n_steps: 256
+  batch_size: 256
+  n_epochs: 4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+flowreg:
+  enabled: true
+  lambda_flow: 1.0
+  sequence_length: 5
+  batch_size: 32
+  update_freq: 20
+  learning_rate: 0.0003
+  hidden_dim: 64
+  rtol: 0.0001
+  atol: 0.00001
+  time_sampling: index
+eval:
+  n_eval_episodes: 10
+  deterministic: true
+
