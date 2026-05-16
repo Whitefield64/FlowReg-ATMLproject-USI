@@ -30,7 +30,7 @@ flowreg:
   sequence_length: 5
   batch_size: 32
   update_freq: 20
-  update_unit: optimizer_step
+  update_unit: train_call
   learning_rate: 0.0003
   hidden_dim: 64
   rtol: 0.0001

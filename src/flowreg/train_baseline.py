@@ -14,11 +14,13 @@ import torch
 import wandb
 from dotenv import load_dotenv
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CallbackList
 from wandb.integration.sb3 import WandbCallback
 
 from flowreg.config import load_yaml_config
 from flowreg.envs import make_dummy_vec_env
 from flowreg.policies import build_policy_kwargs
+from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
 
 
 def _timestamp() -> str:
@@ -78,11 +80,17 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
             monitor_gym=False,
             save_code=False,
         )
-        callback = WandbCallback(
-            model_save_path=str(model_dir / "wandb"),
-            model_save_freq=max(int(config.get("total_timesteps", 0)) // 2, 1),
-            gradient_save_freq=0,
-            verbose=0,
+        define_wandb_step_metrics()
+        callback = CallbackList(
+            [
+                WandbCallback(
+                    model_save_path=str(model_dir / "wandb"),
+                    model_save_freq=max(int(config.get("total_timesteps", 0)) // 2, 1),
+                    gradient_save_freq=0,
+                    verbose=0,
+                ),
+                WandbGlobalStepCallback(),
+            ]
         )
 
     ppo_config = dict(config.get("ppo", {}))

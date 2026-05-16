@@ -16,6 +16,7 @@ from flowreg.flow import (
     sample_flow_trajectories,
     valid_trajectory_starts,
 )
+from flowreg.flowreg_ppo import FlowRegPPO
 from flowreg.policies import build_policy_kwargs
 
 
@@ -226,3 +227,59 @@ def test_evaluation_does_not_call_ode(tmp_path, monkeypatch) -> None:
     )
 
     assert result["n_eval_episodes"] == 1
+
+
+def test_train_call_update_unit_applies_flow_once_per_due_train_call() -> None:
+    vec_env = make_dummy_vec_env(
+        env_id="MiniGrid-DoorKey-5x5-v0",
+        seed=0,
+        n_envs=1,
+        wrapper="img_flatten",
+    )
+    model = FlowRegPPO(
+        "MlpPolicy",
+        vec_env,
+        seed=0,
+        n_steps=16,
+        batch_size=16,
+        n_epochs=1,
+        flow_sequence_length=3,
+        flow_batch_size=1,
+        flow_update_freq=2,
+        flow_hidden_dim=16,
+        flow_update_unit="train_call",
+        policy_kwargs=build_policy_kwargs(
+            {
+                "feature_extractor": {
+                    "name": "minigrid_mlp",
+                    "features_dim": 16,
+                    "hidden_dim": 32,
+                }
+            }
+        ),
+    )
+    env = vec_env.envs[0]
+    obs, _info = env.reset(seed=0)
+    observations = []
+    for _ in range(4):
+        observations.append(obs)
+        obs, _reward, terminated, truncated, _info = env.step(env.action_space.sample())
+        if terminated or truncated:
+            obs, _info = env.reset()
+    model._flow_observations = np.asarray(observations, dtype=np.float32)[:, None, :]
+    model._flow_episode_starts = np.zeros((4, 1), dtype=bool)
+    model._flow_episode_starts[0, 0] = True
+
+    model._begin_flow_train_call()
+    flow_loss, _metrics = model._maybe_compute_flow_loss()
+    assert flow_loss is None
+
+    model._begin_flow_train_call()
+    flow_loss, metrics = model._maybe_compute_flow_loss()
+    second_flow_loss, _second_metrics = model._maybe_compute_flow_loss()
+    vec_env.close()
+
+    assert flow_loss is not None
+    assert th.isfinite(flow_loss)
+    assert metrics["flow_loss"] >= 0
+    assert second_flow_loss is None

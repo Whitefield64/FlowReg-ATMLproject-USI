@@ -40,8 +40,8 @@ class FlowRegPPO(PPO):
             raise ValueError("flow_representation must be one of: features, actor_latent")
         if flow_loss_reduction not in {"paper", "mse_mean"}:
             raise ValueError("flow_loss_reduction must be one of: paper, mse_mean")
-        if flow_update_unit != "optimizer_step":
-            raise ValueError("flow_update_unit currently supports only: optimizer_step")
+        if flow_update_unit not in {"optimizer_step", "train_call"}:
+            raise ValueError("flow_update_unit must be one of: optimizer_step, train_call")
         self.flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=flow_hidden_dim).to(self.device)
         self.flow_optimizer = th.optim.Adam(self.flow_model.parameters(), lr=flow_learning_rate)
         self.lambda_flow = lambda_flow
@@ -54,14 +54,33 @@ class FlowRegPPO(PPO):
         self.flow_loss_reduction = flow_loss_reduction
         self.flow_update_unit = flow_update_unit
         self.flow_step = 0
+        self._flow_train_call_active = False
+        self._flow_train_call_consumed = False
         self.flow_rng = np.random.default_rng(self.seed)
         self._flow_observations: np.ndarray | None = None
         self._flow_episode_starts: np.ndarray | None = None
 
-    def _maybe_compute_flow_loss(self) -> tuple[th.Tensor | None, dict[str, float]]:
+    def _begin_flow_train_call(self) -> None:
+        """Prepare FlowReg frequency state for one PPO train call."""
+        self._flow_train_call_active = False
+        self._flow_train_call_consumed = False
+        if self.flow_update_unit != "train_call":
+            return
         self.flow_step += 1
-        if self.flow_update_freq <= 0 or self.flow_step % self.flow_update_freq != 0:
-            return None, {}
+        self._flow_train_call_active = (
+            self.flow_update_freq > 0 and self.flow_step % self.flow_update_freq == 0
+        )
+
+    def _maybe_compute_flow_loss(self) -> tuple[th.Tensor | None, dict[str, float]]:
+        if self.flow_update_unit == "optimizer_step":
+            self.flow_step += 1
+            if self.flow_update_freq <= 0 or self.flow_step % self.flow_update_freq != 0:
+                return None, {}
+        else:
+            if not self._flow_train_call_active or self._flow_train_call_consumed:
+                return None, {}
+            self._flow_train_call_consumed = True
+
         if self._flow_observations is None or self._flow_episode_starts is None:
             return None, {}
 
@@ -94,6 +113,7 @@ class FlowRegPPO(PPO):
         # private snapshot for contiguous trajectory sampling.
         self._flow_observations = self.rollout_buffer.observations.copy()
         self._flow_episode_starts = self.rollout_buffer.episode_starts.copy()
+        self._begin_flow_train_call()
         self._update_learning_rate(self.policy.optimizer)
         clip_range = self.clip_range(self._current_progress_remaining)  # type: ignore[operator]
         if self.clip_range_vf is not None:

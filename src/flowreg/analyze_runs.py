@@ -188,9 +188,12 @@ def expected_flow_updates(run: dict[str, Any]) -> int:
     batch_size = int(ppo_config.get("batch_size", 1))
     n_epochs = int(ppo_config.get("n_epochs", 1))
     update_freq = int(flow_config.get("update_freq", 0))
+    update_unit = str(flow_config.get("update_unit", "optimizer_step"))
     train_calls = int(updates.get("count", 0))
     if n_steps <= 0 or batch_size <= 0 or update_freq <= 0:
         return 0
+    if update_unit == "train_call":
+        return train_calls // update_freq
     minibatches_per_train = n_epochs * ((n_steps * n_envs) // batch_size)
     return (train_calls * minibatches_per_train) // update_freq
 
