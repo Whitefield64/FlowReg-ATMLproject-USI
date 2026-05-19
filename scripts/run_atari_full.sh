@@ -2,39 +2,56 @@
 set -e
 
 # ============================================================================
-# Full Atari A2C Experiment — FlowReg Paper Reproduction
+# Atari A2C Experiment — Compact FlowReg Reproduction Matrix
 # ============================================================================
 #
-# Paper spec:
-#   - 5 independent runs per agent (baseline + FlowReg) per environment
+# Project scope:
+#   - 2 independent runs per agent (baseline + FlowReg) per environment
 #   - 10 million timesteps each
-#   - Seeds 0–4 (separate from hyperparameter search seeds)
-#   - 11 Atari environments
+#   - Seeds 0–1
+#   - Breakout and Qbert
 #
 # Usage:
 #   bash scripts/run_atari_full.sh              # run everything
 #   bash scripts/run_atari_full.sh --dry-run    # print commands without executing
+#   bash scripts/run_atari_full.sh --timesteps 1000000
 #
 # NOTE: This launches jobs SEQUENTIALLY. For parallel execution on a cluster,
 # see the --dry-run output and submit each line as a separate job.
 # ============================================================================
 
 DRY_RUN=false
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=true
-    echo "=== DRY RUN — printing commands only ==="
-    echo ""
-fi
-
 TIMESTEPS=10000000
-SEEDS=(0 1 2 3 4)
+WANDB_MODE=${WANDB_MODE:-online}
+SEEDS=(0 1)
 
-# 11 standard Atari environments used in FlowReg evaluation.
-# Adjust this list to match the exact set from the paper if different.
 ENVS=(
     "ALE/Breakout-v5"
     "ALE/Qbert-v5"
 )
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --timesteps)
+            TIMESTEPS="$2"
+            shift 2
+            ;;
+        --wandb)
+            WANDB_MODE="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            echo "=== DRY RUN — printing commands only ==="
+            echo ""
+            shift
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
 
 TOTAL_RUNS=$(( ${#ENVS[@]} * ${#SEEDS[@]} * 2 ))
 CURRENT=0
@@ -53,14 +70,14 @@ for env_id in "${ENVS[@]}"; do
         echo "[${CURRENT}/${TOTAL_RUNS}] Baseline A2C | ${env_id} | seed=${seed}"
 
         if $DRY_RUN; then
-            echo "  uv run flowreg-train-baseline-a2c --config configs/baseline_a2c_atari.yaml --timesteps ${TIMESTEPS} --env-id ${env_id} --seed ${seed} --wandb online"
+            echo "  uv run flowreg-train-baseline-a2c --config configs/baseline_a2c_atari.yaml --timesteps ${TIMESTEPS} --env-id ${env_id} --seed ${seed} --wandb ${WANDB_MODE}"
         else
             uv run flowreg-train-baseline-a2c \
                 --config configs/baseline_a2c_atari.yaml \
                 --timesteps $TIMESTEPS \
                 --env-id "$env_id" \
                 --seed $seed \
-                --wandb online
+                --wandb "$WANDB_MODE"
         fi
 
         # --- FlowReg A2C ---
@@ -68,14 +85,14 @@ for env_id in "${ENVS[@]}"; do
         echo "[${CURRENT}/${TOTAL_RUNS}] FlowReg A2C  | ${env_id} | seed=${seed}"
 
         if $DRY_RUN; then
-            echo "  uv run flowreg-train-flowreg-a2c --config configs/flowreg_a2c_atari.yaml --timesteps ${TIMESTEPS} --env-id ${env_id} --seed ${seed} --wandb online"
+            echo "  uv run flowreg-train-flowreg-a2c --config configs/flowreg_a2c_atari.yaml --timesteps ${TIMESTEPS} --env-id ${env_id} --seed ${seed} --wandb ${WANDB_MODE}"
         else
             uv run flowreg-train-flowreg-a2c \
                 --config configs/flowreg_a2c_atari.yaml \
                 --timesteps $TIMESTEPS \
                 --env-id "$env_id" \
                 --seed $seed \
-                --wandb online
+                --wandb "$WANDB_MODE"
         fi
 
         echo ""

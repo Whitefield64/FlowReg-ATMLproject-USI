@@ -6,6 +6,7 @@ n_envs: 16
 policy: CnnPolicy
 device: cuda
 wandb_mode: online
+learning_rate_schedule: linear
 a2c:
   learning_rate: 0.0007
   n_steps: 5
@@ -24,7 +25,7 @@ flowreg:
   update_freq: 10
   update_unit: train_call
   learning_rate: 0.0007
-  hidden_dim: 64
+  hidden_dim: 512
   rtol: 0.0001
   atol: 0.00001
   time_sampling: index

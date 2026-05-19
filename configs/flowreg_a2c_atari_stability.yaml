@@ -1,4 +1,4 @@
-run_name: baseline_a2c_atari
+run_name: flowreg_a2c_atari_stability
 env_id: ALE/Breakout-v5
 seed: 0
 total_timesteps: 10000000
@@ -15,6 +15,20 @@ a2c:
   ent_coef: 0.01
   vf_coef: 0.25
   max_grad_norm: 0.5
+flowreg:
+  enabled: true
+  lambda_flow: 1.0
+  representation: features
+  loss_reduction: mse_mean
+  sequence_length: 5
+  batch_size: 32
+  update_freq: 10
+  update_unit: train_call
+  learning_rate: 0.0007
+  hidden_dim: 512
+  rtol: 0.0001
+  atol: 0.00001
+  time_sampling: index
 eval:
   n_eval_episodes: 10
   deterministic: false

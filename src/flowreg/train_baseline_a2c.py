@@ -44,6 +44,21 @@ def _write_config_snapshot(config: dict[str, Any], run_dir: Path) -> None:
         json.dump(snapshot, handle, indent=2, sort_keys=True)
 
 
+def prepare_a2c_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Translate project A2C config into SB3 kwargs."""
+    a2c_config = dict(config.get("a2c", {}))
+    schedule = str(
+        a2c_config.pop("learning_rate_schedule", config.get("learning_rate_schedule", "constant"))
+    )
+    if schedule == "constant":
+        return a2c_config
+    if schedule == "linear":
+        initial_lr = float(a2c_config["learning_rate"])
+        a2c_config["learning_rate"] = lambda progress_remaining: progress_remaining * initial_lr
+        return a2c_config
+    raise ValueError("learning_rate_schedule must be one of: constant, linear")
+
+
 def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
     """Train A2C from a config dictionary and return the checkpoint path."""
     seed = int(config.get("seed", 0))
@@ -92,7 +107,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
             ]
         )
 
-    a2c_config = dict(config.get("a2c", {}))
+    a2c_config = prepare_a2c_config(config)
     policy_kwargs = build_policy_kwargs(config)
     model = A2C(
         config.get("policy", "CnnPolicy"),

@@ -12,6 +12,18 @@ from stable_baselines3.common.utils import explained_variance
 from flowreg.flow import FlowODE, compute_flow_loss, sample_flow_trajectories
 
 
+def _grad_norm(parameters) -> float:
+    """Return total L2 gradient norm for parameters with gradients."""
+    norms = [
+        param.grad.detach().norm(2)
+        for param in parameters
+        if param.grad is not None
+    ]
+    if not norms:
+        return 0.0
+    return float(th.linalg.vector_norm(th.stack(norms), ord=2).detach().cpu())
+
+
 class FlowRegA2C(A2C):
     """Stable-Baselines3 A2C plus Neural ODE latent path regularization."""
 
@@ -60,6 +72,8 @@ class FlowRegA2C(A2C):
         self.flow_update_unit = flow_update_unit
         
         self.flow_step = 0
+        self.flow_total_updates = 0
+        self.flow_total_skipped = 0
         self._flow_train_call_active = False
         self._flow_train_call_consumed = False
         self.flow_rng = np.random.default_rng(self.seed)
@@ -129,6 +143,10 @@ class FlowRegA2C(A2C):
 
         entropy_losses = []
         pg_losses, value_losses = [], []
+        rl_losses = []
+        total_losses = []
+        policy_grad_norms = []
+        flow_grad_norms = []
         flow_losses = []
         flow_losses_paper_scaled = []
         flow_losses_mse_mean = []
@@ -136,6 +154,8 @@ class FlowRegA2C(A2C):
         net_displacements = []
         acceleration_energies = []
         ode_error_drifts = []
+        flow_applied = 0
+        flow_skipped = 0
 
         for rollout_data in self.rollout_buffer.get(batch_size=None):
             actions = rollout_data.actions
@@ -161,11 +181,15 @@ class FlowRegA2C(A2C):
                 entropy_loss = -th.mean(entropy)
             entropy_losses.append(entropy_loss.item())
 
-            loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
+            rl_loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
+            loss = rl_loss
+            rl_losses.append(rl_loss.item())
             
             flow_loss, flow_metrics = self._maybe_compute_flow_loss()
             if flow_loss is not None:
                 loss = loss + self.lambda_flow * flow_loss
+                flow_applied += 1
+                self.flow_total_updates += 1
                 flow_losses.append(flow_metrics["flow_loss"])
                 flow_losses_paper_scaled.append(flow_metrics["flow_loss_paper_scaled"])
                 flow_losses_mse_mean.append(flow_metrics["flow_loss_mse_mean"])
@@ -173,19 +197,30 @@ class FlowRegA2C(A2C):
                 net_displacements.append(flow_metrics["net_displacement"])
                 acceleration_energies.append(flow_metrics["acceleration_energy"])
                 ode_error_drifts.append(flow_metrics["ode_error_drift"])
+            else:
+                flow_skipped += 1
+            total_losses.append(loss.item())
 
             self.policy.optimizer.zero_grad()
-            if flow_loss is not None:
-                self.flow_optimizer.zero_grad()
+            self.flow_optimizer.zero_grad()
                 
             loss.backward()
-            
-            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+
+            policy_grad_norms.append(_grad_norm(self.policy.parameters()))
+            flow_grad_norms.append(_grad_norm(self.flow_model.parameters()))
+            if flow_loss is not None:
+                th.nn.utils.clip_grad_norm_(
+                    list(self.policy.parameters()) + list(self.flow_model.parameters()),
+                    self.max_grad_norm,
+                )
+            else:
+                th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.policy.optimizer.step()
             if flow_loss is not None:
                 self.flow_optimizer.step()
 
         self._n_updates += 1
+        self.flow_total_skipped += flow_skipped
 
         explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
 
@@ -193,11 +228,19 @@ class FlowRegA2C(A2C):
         self.logger.record("train/policy_loss", np.mean(pg_losses))
         self.logger.record("train/value_loss", np.mean(value_losses))
         self.logger.record("train/explained_variance", explained_var)
+        self.logger.record("train/flow_learning_rate", new_flow_lr)
+        self.logger.record("Loss/RL_Total", float(np.mean(rl_losses)))
+        self.logger.record("Loss/Total", float(np.mean(total_losses)))
+        self.logger.record("GradNorm/Policy", float(np.mean(policy_grad_norms)))
+        self.logger.record("FlowReg/Skipped", self.flow_total_skipped)
+        self.logger.record("FlowReg/TotalUpdates", self.flow_total_updates)
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
 
         if flow_losses:
+            self.logger.record("GradNorm/FlowODE", float(np.mean(flow_grad_norms)))
+            self.logger.record("FlowReg/Applied", flow_applied)
             self.logger.record("Loss/FlowReg", float(np.mean(flow_losses)))
             self.logger.record("Loss/FlowReg_PaperScaled", float(np.mean(flow_losses_paper_scaled)))
             self.logger.record("Loss/FlowReg_MSEMean", float(np.mean(flow_losses_mse_mean)))
@@ -206,5 +249,3 @@ class FlowRegA2C(A2C):
             self.logger.record("Latent/Acceleration_Energy", float(np.mean(acceleration_energies)))
             self.logger.record("Latent/ODE_Error_Drift", float(np.mean(ode_error_drifts)))
             self.logger.record("FlowReg/Updates", len(flow_losses))
-        else:
-            self.logger.record("FlowReg/Updates", 0)

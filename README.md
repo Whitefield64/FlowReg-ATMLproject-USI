@@ -82,6 +82,69 @@ for seed in 0 1 2; do
 done
 ```
 
+### Atari A2C On CUDA
+
+The Atari configs are intended for Lightning AI or another CUDA machine. They
+use SB3 A2C with Nature CNN features, RMSProp, initial learning rate `7e-4`,
+linear learning-rate decay, and gradient clipping `0.5`.
+
+Check CUDA before launching runs:
+
+```bash
+uv run python - <<'PY'
+import torch
+print(torch.__version__)
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "NO CUDA")
+PY
+```
+
+Run the first diagnostic FlowReg smoke with dimension-mean MSE:
+
+```bash
+uv run flowreg-train-flowreg-a2c \
+  --config configs/flowreg_a2c_atari_stability.yaml \
+  --env-id ALE/Breakout-v5 \
+  --seed 0 \
+  --timesteps 100000 \
+  --wandb online
+```
+
+Run the paper-scaled Breakout smoke:
+
+```bash
+uv run flowreg-train-baseline-a2c \
+  --config configs/baseline_a2c_atari.yaml \
+  --env-id ALE/Breakout-v5 \
+  --seed 0 \
+  --timesteps 100000 \
+  --wandb online
+
+uv run flowreg-train-flowreg-a2c \
+  --config configs/flowreg_a2c_atari.yaml \
+  --env-id ALE/Breakout-v5 \
+  --seed 0 \
+  --timesteps 100000 \
+  --wandb online
+```
+
+Generate the compact final Atari matrix commands:
+
+```bash
+bash scripts/run_atari_full.sh --dry-run
+```
+
+Launch the compact matrix:
+
+```bash
+bash scripts/run_atari_full.sh
+```
+
+The final Atari matrix is Breakout and Qbert, seeds `0` and `1`, baseline plus
+FlowReg, for `10M` timesteps per run. After smoke runs, check W&B for finite
+`Loss/*`, `Latent/*`, and `GradNorm/*`; `FlowReg/TotalUpdates` should be close
+to `timesteps / (n_envs * n_steps * update_freq)`.
+
 ### Print Metrics
 
 The `run_id` is the run folder name under `runs/baseline_ppo/` or

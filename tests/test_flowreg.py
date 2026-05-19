@@ -18,6 +18,7 @@ from flowreg.flow import (
 )
 from flowreg.flowreg_ppo import FlowRegPPO
 from flowreg.policies import build_policy_kwargs
+from flowreg.train_baseline_a2c import prepare_a2c_config
 
 
 def test_valid_trajectory_starts_skip_episode_boundaries() -> None:
@@ -79,6 +80,24 @@ def test_flow_loss_values_match_paper_scaled_formula() -> None:
     assert th.allclose(mse_mean, expected_mse_mean)
     assert paper_scaled.item() == 11.0
     assert mse_mean.item() == 5.5
+
+
+def test_prepare_a2c_config_linear_learning_rate_schedule() -> None:
+    config = {
+        "learning_rate_schedule": "linear",
+        "a2c": {
+            "learning_rate": 0.0007,
+            "n_steps": 5,
+        },
+    }
+
+    a2c_config = prepare_a2c_config(config)
+
+    assert "learning_rate_schedule" not in a2c_config
+    assert a2c_config["n_steps"] == 5
+    assert a2c_config["learning_rate"](1.0) == 0.0007
+    assert a2c_config["learning_rate"](0.5) == 0.00035
+    assert a2c_config["learning_rate"](0.0) == 0.0
 
 
 def test_compute_flow_loss_backpropagates_to_feature_extractor_and_ode() -> None:

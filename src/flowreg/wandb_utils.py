@@ -15,6 +15,7 @@ def define_wandb_step_metrics() -> None:
         "Loss/*",
         "Latent/*",
         "FlowReg/*",
+        "GradNorm/*",
         "time/*",
     ):
         wandb.define_metric(pattern, step_metric="global_step")

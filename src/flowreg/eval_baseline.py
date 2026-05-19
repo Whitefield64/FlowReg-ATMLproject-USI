@@ -1,4 +1,4 @@
-"""Evaluate a trained SB3 PPO baseline checkpoint."""
+"""Evaluate trained SB3 checkpoints for MiniGrid PPO or Atari A2C."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import argparse
 import json
 from pathlib import Path
 
-from stable_baselines3 import PPO
+from stable_baselines3 import A2C, PPO
 from stable_baselines3.common.evaluation import evaluate_policy
 
 from flowreg.config import load_yaml_config
-from flowreg.envs import make_minigrid_env
+from flowreg.envs import make_atari_environment, make_minigrid_env
 
 
 def evaluate_checkpoint(
@@ -20,10 +20,17 @@ def evaluate_checkpoint(
     n_eval_episodes: int,
     deterministic: bool,
     wrapper: str,
+    device: str = "cpu",
 ) -> dict[str, float | int | str | bool]:
     """Evaluate a checkpoint and return report-friendly metrics."""
-    env = make_minigrid_env(env_id=env_id, seed=seed, wrapper=wrapper)
-    model = PPO.load(model_path, env=env, device="cpu")
+    if env_id.startswith("ALE/"):
+        env = make_atari_environment(env_id=env_id, seed=seed, n_envs=1)
+        model = A2C.load(model_path, env=env, device=device)
+        algorithm = "A2C"
+    else:
+        env = make_minigrid_env(env_id=env_id, seed=seed, wrapper=wrapper)
+        model = PPO.load(model_path, env=env, device=device)
+        algorithm = "PPO"
     mean_reward, std_reward = evaluate_policy(
         model,
         env,
@@ -34,6 +41,7 @@ def evaluate_checkpoint(
     )
     env.close()
     return {
+        "algorithm": algorithm,
         "model_path": str(model_path),
         "env_id": env_id,
         "seed": seed,
@@ -45,11 +53,12 @@ def evaluate_checkpoint(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate a baseline PPO checkpoint.")
+    parser = argparse.ArgumentParser(description="Evaluate a MiniGrid PPO or Atari A2C checkpoint.")
     parser.add_argument("--config", default="configs/baseline_ppo_fourrooms.yaml")
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--episodes", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
     config = load_yaml_config(args.config)
@@ -65,10 +74,10 @@ def main() -> None:
         ),
         deterministic=bool(eval_config.get("deterministic", True)),
         wrapper=config.get("wrapper", "img_flatten"),
+        device=args.device,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

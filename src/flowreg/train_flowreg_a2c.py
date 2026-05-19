@@ -20,7 +20,7 @@ from flowreg.config import load_yaml_config
 from flowreg.envs import make_atari_environment
 from flowreg.flowreg_a2c import FlowRegA2C
 from flowreg.policies import build_policy_kwargs
-from flowreg.train_baseline import _safe_wandb_mode
+from flowreg.train_baseline_a2c import _safe_wandb_mode, prepare_a2c_config
 from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
 
 
@@ -85,7 +85,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
             ]
         )
 
-    a2c_config = dict(config.get("a2c", {}))
+    a2c_config = prepare_a2c_config(config)
     flow_config = dict(config.get("flowreg", {}))
     policy_kwargs = build_policy_kwargs(config)
     model = FlowRegA2C(

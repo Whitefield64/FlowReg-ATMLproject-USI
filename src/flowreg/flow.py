@@ -164,24 +164,18 @@ def compute_flow_loss(
     latent_flat = policy_latents(policy, obs_tensor, representation=representation)
     latent_path = latent_flat.reshape(batch_size, sequence_length, -1)
 
-    # Detach latent targets: the encoder (h_theta) should NOT be updated by
-    # the flow loss.  Only the ODE model (f_phi) learns to match the encoder's
-    # trajectory.  This prevents the regularizer from destabilising the RL
-    # representations.
-    latent_path_detached = latent_path.detach()
-
-    z0 = latent_path_detached[:, 0, :]
+    z0 = latent_path[:, 0, :]
     if time_sampling == "index":
         time_grid = index_time_grid(sequence_length, device)
     elif time_sampling == "exponential":
         time_grid = exponential_time_grid(sequence_length, gamma, device)
     else:
         raise ValueError("time_sampling must be one of: index, exponential")
-        
+
     ode_path = odeint(flow_model, z0, time_grid, rtol=rtol, atol=atol)
     ode_path = ode_path.transpose(0, 1)
 
-    paper_scaled_loss, mse_mean_loss = flow_loss_values(latent_path_detached, ode_path)
+    paper_scaled_loss, mse_mean_loss = flow_loss_values(latent_path, ode_path)
     if loss_reduction == "paper":
         loss = paper_scaled_loss
     elif loss_reduction == "mse_mean":
@@ -190,6 +184,8 @@ def compute_flow_loss(
         raise ValueError("loss_reduction must be one of: paper, mse_mean")
 
     with th.no_grad():
+        latent_path_detached = latent_path.detach()
+        ode_path_detached = ode_path.detach()
         diffs = latent_path_detached[:, 1:, :] - latent_path_detached[:, :-1, :]
         path_length = th.linalg.norm(diffs, dim=-1).mean()
         net_displacement = (
@@ -201,7 +197,9 @@ def compute_flow_loss(
             acceleration_energy = th.linalg.norm(acceleration, dim=-1).mean()
         else:
             acceleration_energy = th.zeros((), device=device)
-        ode_error_drift = th.linalg.norm(ode_path[:, -1, :] - latent_path_detached[:, -1, :], dim=-1).mean()
+        ode_error_drift = th.linalg.norm(
+            ode_path_detached[:, -1, :] - latent_path_detached[:, -1, :], dim=-1
+        ).mean()
     metrics = {
         "flow_loss": float(loss.detach().cpu()),
         "flow_loss_paper_scaled": float(paper_scaled_loss.detach().cpu()),
