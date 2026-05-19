@@ -1,0 +1,19 @@
+run_name: baseline_a2c_atari
+env_id: ALE/Breakout-v5
+seed: 0
+total_timesteps: 10000000
+n_envs: 16
+policy: CnnPolicy
+device: cuda
+wandb_mode: online
+a2c:
+  learning_rate: 0.0007
+  n_steps: 5
+  gamma: 0.99
+  gae_lambda: 1.0
+  ent_coef: 0.01
+  vf_coef: 0.25
+  max_grad_norm: 0.5
+eval:
+  n_eval_episodes: 10
+  deterministic: false

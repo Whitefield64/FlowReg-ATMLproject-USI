@@ -5,9 +5,10 @@ description = "MiniGrid PPO and FlowReg reproducibility project for ATML."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "gymnasium==1.2.3",
+    "gymnasium[atari,accept-rom-license]==1.2.3",
     "minigrid==3.1.0",
     "numpy>=1.26,<3",
+    "opencv-python-headless>=4.8.0",
     "python-dotenv>=1.0.1,<2",
     "pyyaml>=6.0,<7",
     "stable-baselines3==2.8.0",
@@ -29,6 +30,8 @@ flowreg-eval-baseline = "flowreg.eval_baseline:main"
 flowreg-smoke-phase1 = "flowreg.smoke_phase1:main"
 flowreg-train-baseline = "flowreg.train_baseline:main"
 flowreg-train-flowreg = "flowreg.train_flowreg:main"
+flowreg-train-baseline-a2c = "flowreg.train_baseline_a2c:main"
+flowreg-train-flowreg-a2c = "flowreg.train_flowreg_a2c:main"
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]
