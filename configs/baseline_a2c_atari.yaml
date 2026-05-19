@@ -4,7 +4,7 @@ seed: 0
 total_timesteps: 10000000
 n_envs: 16
 policy: CnnPolicy
-device: cuda
+device: mps
 wandb_mode: online
 a2c:
   learning_rate: 0.0007

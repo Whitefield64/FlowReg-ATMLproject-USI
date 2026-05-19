@@ -60,6 +60,10 @@ class FlowRegPPO(PPO):
         self.flow_rng = np.random.default_rng(self.seed)
         self._flow_observations: np.ndarray | None = None
         self._flow_episode_starts: np.ndarray | None = None
+        # Persistent logging state — survives across train() calls so that
+        # SB3's log-interval doesn't overwrite metrics with 0.
+        self._flow_total_updates: int = 0
+        self._flow_latest_metrics: dict[str, float] = {}
 
     def _begin_flow_train_call(self) -> None:
         """Prepare FlowReg frequency state for one PPO train call."""
@@ -228,13 +232,19 @@ class FlowRegPPO(PPO):
             self.logger.record("train/clip_range_vf", clip_range_vf)
 
         if flow_losses:
-            self.logger.record("Loss/FlowReg", float(np.mean(flow_losses)))
-            self.logger.record("Loss/FlowReg_PaperScaled", float(np.mean(flow_losses_paper_scaled)))
-            self.logger.record("Loss/FlowReg_MSEMean", float(np.mean(flow_losses_mse_mean)))
-            self.logger.record("Latent/Path_Length", float(np.mean(path_lengths)))
-            self.logger.record("Latent/Net_Displacement", float(np.mean(net_displacements)))
-            self.logger.record("Latent/Acceleration_Energy", float(np.mean(acceleration_energies)))
-            self.logger.record("Latent/ODE_Error_Drift", float(np.mean(ode_error_drifts)))
-            self.logger.record("FlowReg/Updates", len(flow_losses))
-        else:
-            self.logger.record("FlowReg/Updates", 0)
+            self._flow_total_updates += len(flow_losses)
+            self._flow_latest_metrics = {
+                "Loss/FlowReg": float(np.mean(flow_losses)),
+                "Loss/FlowReg_PaperScaled": float(np.mean(flow_losses_paper_scaled)),
+                "Loss/FlowReg_MSEMean": float(np.mean(flow_losses_mse_mean)),
+                "Latent/Path_Length": float(np.mean(path_lengths)),
+                "Latent/Net_Displacement": float(np.mean(net_displacements)),
+                "Latent/Acceleration_Energy": float(np.mean(acceleration_energies)),
+                "Latent/ODE_Error_Drift": float(np.mean(ode_error_drifts)),
+            }
+
+        # Always log cached metrics so SB3's log dump sees the latest
+        # FlowReg values instead of 0.
+        for key, value in self._flow_latest_metrics.items():
+            self.logger.record(key, value)
+        self.logger.record("FlowReg/TotalUpdates", self._flow_total_updates)

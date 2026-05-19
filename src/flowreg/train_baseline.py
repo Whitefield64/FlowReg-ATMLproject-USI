@@ -27,6 +27,16 @@ def _timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def _short_env_name(env_id: str) -> str:
+    """Extract a short readable name from an env id, e.g. 'MiniGrid-FourRooms-v0' -> 'FourRooms'."""
+    name = env_id.split("/")[-1]       # handle 'ALE/Breakout-v5' -> 'Breakout-v5'
+    # For MiniGrid: 'MiniGrid-FourRooms-v0' -> strip prefix and version
+    parts = name.rsplit("-", 1)        # ['MiniGrid-FourRooms', 'v0']
+    name = parts[0]                    # 'MiniGrid-FourRooms'
+    name = name.removeprefix("MiniGrid-")  # 'FourRooms'
+    return name
+
+
 def _safe_wandb_mode(config_mode: str, cli_mode: str | None) -> str:
     mode = cli_mode or config_mode or "disabled"
     if mode not in {"disabled", "offline", "online"}:
@@ -48,8 +58,8 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
     """Train PPO from a config dictionary and return the checkpoint path."""
     seed = int(config.get("seed", 0))
     env_id = str(config["env_id"])
-    run_name = str(config.get("run_name", f"baseline_ppo_{env_id}"))
-    run_id = f"{run_name}_seed{seed}_{_timestamp()}"
+    env_short = _short_env_name(env_id)
+    run_id = f"baseline_ppo_{env_short}_s{seed}_{_timestamp()}"
     run_dir = Path("runs") / "baseline_ppo" / run_id
     monitor_dir = run_dir / "monitor"
     model_dir = run_dir / "models"

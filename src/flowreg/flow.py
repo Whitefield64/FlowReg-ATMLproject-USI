@@ -178,7 +178,10 @@ def compute_flow_loss(
     else:
         raise ValueError("time_sampling must be one of: index, exponential")
         
-    ode_path = odeint(flow_model, z0, time_grid, rtol=rtol, atol=atol)
+    ode_path = odeint(
+        flow_model, z0, time_grid, rtol=rtol, atol=atol,
+        options={"dtype": th.float32},
+    )
     ode_path = ode_path.transpose(0, 1)
 
     paper_scaled_loss, mse_mean_loss = flow_loss_values(latent_path_detached, ode_path)
