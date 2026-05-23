@@ -25,7 +25,7 @@ flowreg:
   enabled: true
   lambda_flow: 1.0
   representation: features
-  loss_reduction: paper
+  loss_reduction: mse_mean
   sequence_length: 5
   batch_size: 32
   update_freq: 5

@@ -56,7 +56,7 @@ class FlowRegA2C(A2C):
         if flow_update_unit not in {"optimizer_step", "train_call"}:
             raise ValueError("flow_update_unit must be one of: optimizer_step, train_call")
         
-        self.flow_model = th.compile(FlowODE(latent_dim=latent_dim, hidden_dim=flow_hidden_dim).to(self.device))
+        self.flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=flow_hidden_dim).to(self.device)
         self.flow_optimizer = th.optim.RMSprop(self.flow_model.parameters(), lr=flow_learning_rate)
         self._flow_initial_lr = flow_learning_rate
         
