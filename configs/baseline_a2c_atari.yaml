@@ -2,10 +2,16 @@ run_name: baseline_a2c_atari
 env_id: ALE/Breakout-v5
 seed: 0
 total_timesteps: 10000000
-n_envs: 32
+n_envs: 16
 policy: CnnPolicy
 device: cuda
 wandb_mode: online
+atari_env_kwargs:
+  frameskip: 1
+  repeat_action_probability: 0.0
+atari_wrapper_kwargs:
+  frame_skip: 4
+  action_repeat_probability: 0.0
 learning_rate_schedule: linear
 a2c:
   learning_rate: 0.0007

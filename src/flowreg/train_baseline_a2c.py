@@ -62,6 +62,14 @@ def prepare_a2c_config(config: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("learning_rate_schedule must be one of: constant, linear")
 
 
+def _atari_env_kwargs(config: dict[str, Any]) -> dict[str, Any]:
+    return dict(config.get("atari_env_kwargs", {}) or {})
+
+
+def _atari_wrapper_kwargs(config: dict[str, Any]) -> dict[str, Any]:
+    return dict(config.get("atari_wrapper_kwargs", {}) or {})
+
+
 def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
     """Train A2C from a config dictionary and return the checkpoint path."""
     seed = int(config.get("seed", 0))
@@ -82,6 +90,8 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
         seed=seed,
         n_envs=int(config.get("n_envs", 1)),
         monitor_dir=monitor_dir,
+        env_kwargs=_atari_env_kwargs(config),
+        wrapper_kwargs=_atari_wrapper_kwargs(config),
     )
 
     wandb_run = None

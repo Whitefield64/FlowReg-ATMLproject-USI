@@ -6,7 +6,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.utils import obs_as_tensor
 
 from flowreg.eval_baseline import evaluate_checkpoint
-from flowreg.envs import make_dummy_vec_env
+from flowreg.envs import make_atari_environment, make_dummy_vec_env
 from flowreg.flow import (
     FlowODE,
     compute_flow_loss,
@@ -16,9 +16,18 @@ from flowreg.flow import (
     sample_flow_trajectories,
     valid_trajectory_starts,
 )
+from flowreg.flowreg_a2c import FlowRegA2C
 from flowreg.flowreg_ppo import FlowRegPPO
 from flowreg.policies import build_policy_kwargs
 from flowreg.train_baseline_a2c import prepare_a2c_config
+
+
+class DummyLogger:
+    def __init__(self) -> None:
+        self.records: dict[str, float | int] = {}
+
+    def record(self, key: str, value, *args, **kwargs) -> None:
+        self.records[key] = value
 
 
 def test_valid_trajectory_starts_skip_episode_boundaries() -> None:
@@ -98,6 +107,84 @@ def test_prepare_a2c_config_linear_learning_rate_schedule() -> None:
     assert a2c_config["learning_rate"](1.0) == 0.0007
     assert a2c_config["learning_rate"](0.5) == 0.00035
     assert a2c_config["learning_rate"](0.0) == 0.0
+
+
+def test_make_atari_environment_forwards_env_and_wrapper_kwargs(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    raw_env = object()
+
+    def fake_make_atari_env(**kwargs):
+        captured.update(kwargs)
+        return raw_env
+
+    def fake_vec_frame_stack(env, n_stack):
+        captured["stacked_env"] = env
+        captured["n_stack"] = n_stack
+        return ("stacked", env, n_stack)
+
+    monkeypatch.setattr("flowreg.envs.make_atari_env", fake_make_atari_env)
+    monkeypatch.setattr("flowreg.envs.VecFrameStack", fake_vec_frame_stack)
+
+    result = make_atari_environment(
+        env_id="ALE/Breakout-v5",
+        seed=7,
+        n_envs=4,
+        monitor_dir="monitor",
+        env_kwargs={"frameskip": 1, "repeat_action_probability": 0.0},
+        wrapper_kwargs={"frame_skip": 4, "action_repeat_probability": 0.0},
+    )
+
+    assert result == ("stacked", raw_env, 4)
+    assert captured["env_id"] == "ALE/Breakout-v5"
+    assert captured["n_envs"] == 4
+    assert captured["seed"] == 7
+    assert captured["env_kwargs"] == {"frameskip": 1, "repeat_action_probability": 0.0}
+    assert captured["wrapper_kwargs"] == {"frame_skip": 4, "action_repeat_probability": 0.0}
+    assert captured["n_stack"] == 4
+
+
+def test_atari_evaluation_uses_training_env_kwargs(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    class DummyEnv:
+        def close(self) -> None:
+            captured["closed"] = True
+
+    def fake_make_atari_environment(**kwargs):
+        captured.update(kwargs)
+        return DummyEnv()
+
+    def fake_load(model_path, env, device):
+        captured["load"] = (model_path, env, device)
+        return object()
+
+    def fake_evaluate_policy(model, env, n_eval_episodes, deterministic, return_episode_rewards, warn):
+        captured["eval"] = (model, env, n_eval_episodes, deterministic, return_episode_rewards, warn)
+        return 12.0, 0.5
+
+    monkeypatch.setattr("flowreg.eval_baseline.make_atari_environment", fake_make_atari_environment)
+    monkeypatch.setattr("flowreg.eval_baseline.A2C.load", fake_load)
+    monkeypatch.setattr("flowreg.eval_baseline.evaluate_policy", fake_evaluate_policy)
+
+    result = evaluate_checkpoint(
+        model_path=tmp_path / "model.zip",
+        env_id="ALE/Qbert-v5",
+        seed=11,
+        n_eval_episodes=20,
+        deterministic=False,
+        wrapper="img_flatten",
+        device="cpu",
+        env_kwargs={"frameskip": 1, "repeat_action_probability": 0.0},
+        wrapper_kwargs={"frame_skip": 4, "action_repeat_probability": 0.0},
+    )
+
+    assert result["algorithm"] == "A2C"
+    assert result["mean_reward"] == 12.0
+    assert result["std_reward"] == 0.5
+    assert captured["env_kwargs"] == {"frameskip": 1, "repeat_action_probability": 0.0}
+    assert captured["wrapper_kwargs"] == {"frame_skip": 4, "action_repeat_probability": 0.0}
+    assert captured["eval"][2:] == (20, False, False, False)
+    assert captured["closed"] is True
 
 
 def test_compute_flow_loss_backpropagates_to_feature_extractor_and_ode() -> None:
@@ -246,6 +333,80 @@ def test_evaluation_does_not_call_ode(tmp_path, monkeypatch) -> None:
     )
 
     assert result["n_eval_episodes"] == 1
+
+
+def test_a2c_cached_flow_metrics_survive_empty_interval() -> None:
+    model = object.__new__(FlowRegA2C)
+    model._logger = DummyLogger()
+    model.flow_total_updates = 3
+    model._flow_latest_metrics = {}
+
+    model._record_cached_flow_metrics(
+        flow_applied=1,
+        flow_losses=[8.0],
+        flow_losses_paper_scaled=[8.0],
+        flow_losses_mse_mean=[0.25],
+        path_lengths=[1.5],
+        net_displacements=[0.75],
+        acceleration_energies=[0.5],
+        ode_error_drifts=[0.1],
+    )
+    cached_metrics = dict(model._flow_latest_metrics)
+    model.logger.records.clear()
+
+    model._record_cached_flow_metrics(
+        flow_applied=0,
+        flow_losses=[],
+        flow_losses_paper_scaled=[],
+        flow_losses_mse_mean=[],
+        path_lengths=[],
+        net_displacements=[],
+        acceleration_energies=[],
+        ode_error_drifts=[],
+    )
+
+    assert model.logger.records["FlowReg/Applied"] == 0
+    assert model.logger.records["FlowReg/Updates"] == 0
+    assert model.logger.records["FlowReg/TotalUpdates"] == 3
+    assert model.logger.records["Loss/FlowReg"] == cached_metrics["Loss/FlowReg"]
+    assert model.logger.records["Latent/Path_Length"] == cached_metrics["Latent/Path_Length"]
+
+
+def test_ppo_cached_flow_metrics_survive_empty_interval() -> None:
+    model = object.__new__(FlowRegPPO)
+    model._logger = DummyLogger()
+    model.flow_total_updates = 4
+    model._flow_latest_metrics = {}
+
+    model._record_cached_flow_metrics(
+        flow_applied=2,
+        flow_losses=[6.0, 4.0],
+        flow_losses_paper_scaled=[6.0, 4.0],
+        flow_losses_mse_mean=[0.20, 0.10],
+        path_lengths=[2.0, 1.0],
+        net_displacements=[0.5, 0.25],
+        acceleration_energies=[0.3, 0.2],
+        ode_error_drifts=[0.1, 0.05],
+    )
+    cached_metrics = dict(model._flow_latest_metrics)
+    model.logger.records.clear()
+
+    model._record_cached_flow_metrics(
+        flow_applied=0,
+        flow_losses=[],
+        flow_losses_paper_scaled=[],
+        flow_losses_mse_mean=[],
+        path_lengths=[],
+        net_displacements=[],
+        acceleration_energies=[],
+        ode_error_drifts=[],
+    )
+
+    assert model.logger.records["FlowReg/Applied"] == 0
+    assert model.logger.records["FlowReg/Updates"] == 0
+    assert model.logger.records["FlowReg/TotalUpdates"] == 4
+    assert model.logger.records["Loss/FlowReg"] == cached_metrics["Loss/FlowReg"]
+    assert model.logger.records["Latent/ODE_Error_Drift"] == cached_metrics["Latent/ODE_Error_Drift"]
 
 
 def test_train_call_update_unit_applies_flow_once_per_due_train_call() -> None:

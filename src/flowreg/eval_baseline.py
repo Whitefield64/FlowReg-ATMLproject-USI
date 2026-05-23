@@ -21,10 +21,18 @@ def evaluate_checkpoint(
     deterministic: bool,
     wrapper: str,
     device: str = "cpu",
+    env_kwargs: dict | None = None,
+    wrapper_kwargs: dict | None = None,
 ) -> dict[str, float | int | str | bool]:
     """Evaluate a checkpoint and return report-friendly metrics."""
     if env_id.startswith("ALE/"):
-        env = make_atari_environment(env_id=env_id, seed=seed, n_envs=1)
+        env = make_atari_environment(
+            env_id=env_id,
+            seed=seed,
+            n_envs=1,
+            env_kwargs=env_kwargs,
+            wrapper_kwargs=wrapper_kwargs,
+        )
         model = A2C.load(model_path, env=env, device=device)
         algorithm = "A2C"
     else:
@@ -75,6 +83,8 @@ def main() -> None:
         deterministic=bool(eval_config.get("deterministic", True)),
         wrapper=config.get("wrapper", "img_flatten"),
         device=args.device,
+        env_kwargs=dict(config.get("atari_env_kwargs", {}) or {}),
+        wrapper_kwargs=dict(config.get("atari_wrapper_kwargs", {}) or {}),
     )
     print(json.dumps(result, indent=2, sort_keys=True))
 

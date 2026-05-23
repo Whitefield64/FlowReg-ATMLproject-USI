@@ -79,6 +79,7 @@ class FlowRegA2C(A2C):
         self.flow_rng = np.random.default_rng(self.seed)
         self._flow_observations: np.ndarray | None = None
         self._flow_episode_starts: np.ndarray | None = None
+        self._flow_latest_metrics: dict[str, float] = {}
 
     def _begin_flow_train_call(self) -> None:
         """Prepare FlowReg frequency state for one train call."""
@@ -125,6 +126,34 @@ class FlowRegA2C(A2C):
             representation=self.flow_representation,
             loss_reduction=self.flow_loss_reduction,
         )
+
+    def _record_cached_flow_metrics(
+        self,
+        *,
+        flow_applied: int,
+        flow_losses: list[float],
+        flow_losses_paper_scaled: list[float],
+        flow_losses_mse_mean: list[float],
+        path_lengths: list[float],
+        net_displacements: list[float],
+        acceleration_energies: list[float],
+        ode_error_drifts: list[float],
+    ) -> None:
+        self.logger.record("FlowReg/Applied", flow_applied)
+        self.logger.record("FlowReg/Updates", len(flow_losses))
+        if flow_losses:
+            self._flow_latest_metrics = {
+                "Loss/FlowReg": float(np.mean(flow_losses)),
+                "Loss/FlowReg_PaperScaled": float(np.mean(flow_losses_paper_scaled)),
+                "Loss/FlowReg_MSEMean": float(np.mean(flow_losses_mse_mean)),
+                "Latent/Path_Length": float(np.mean(path_lengths)),
+                "Latent/Net_Displacement": float(np.mean(net_displacements)),
+                "Latent/Acceleration_Energy": float(np.mean(acceleration_energies)),
+                "Latent/ODE_Error_Drift": float(np.mean(ode_error_drifts)),
+            }
+        for key, value in self._flow_latest_metrics.items():
+            self.logger.record(key, value)
+        self.logger.record("FlowReg/TotalUpdates", self.flow_total_updates)
 
     def train(self) -> None:
         """Update A2C and occasionally add FlowReg to the same backward pass."""
@@ -233,19 +262,19 @@ class FlowRegA2C(A2C):
         self.logger.record("Loss/Total", float(np.mean(total_losses)))
         self.logger.record("GradNorm/Policy", float(np.mean(policy_grad_norms)))
         self.logger.record("FlowReg/Skipped", self.flow_total_skipped)
-        self.logger.record("FlowReg/TotalUpdates", self.flow_total_updates)
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
 
         if flow_losses:
             self.logger.record("GradNorm/FlowODE", float(np.mean(flow_grad_norms)))
-            self.logger.record("FlowReg/Applied", flow_applied)
-            self.logger.record("Loss/FlowReg", float(np.mean(flow_losses)))
-            self.logger.record("Loss/FlowReg_PaperScaled", float(np.mean(flow_losses_paper_scaled)))
-            self.logger.record("Loss/FlowReg_MSEMean", float(np.mean(flow_losses_mse_mean)))
-            self.logger.record("Latent/Path_Length", float(np.mean(path_lengths)))
-            self.logger.record("Latent/Net_Displacement", float(np.mean(net_displacements)))
-            self.logger.record("Latent/Acceleration_Energy", float(np.mean(acceleration_energies)))
-            self.logger.record("Latent/ODE_Error_Drift", float(np.mean(ode_error_drifts)))
-            self.logger.record("FlowReg/Updates", len(flow_losses))
+        self._record_cached_flow_metrics(
+            flow_applied=flow_applied,
+            flow_losses=flow_losses,
+            flow_losses_paper_scaled=flow_losses_paper_scaled,
+            flow_losses_mse_mean=flow_losses_mse_mean,
+            path_lengths=path_lengths,
+            net_displacements=net_displacements,
+            acceleration_energies=acceleration_energies,
+            ode_error_drifts=ode_error_drifts,
+        )

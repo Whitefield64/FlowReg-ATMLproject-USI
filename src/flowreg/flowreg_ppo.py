@@ -12,6 +12,18 @@ from stable_baselines3.common.utils import explained_variance
 from flowreg.flow import FlowODE, compute_flow_loss, sample_flow_trajectories
 
 
+def _grad_norm(parameters) -> float:
+    """Return total L2 gradient norm for parameters with gradients."""
+    norms = [
+        param.grad.detach().norm(2)
+        for param in parameters
+        if param.grad is not None
+    ]
+    if not norms:
+        return 0.0
+    return float(th.linalg.vector_norm(th.stack(norms), ord=2).detach().cpu())
+
+
 class FlowRegPPO(PPO):
     """Stable-Baselines3 PPO plus Neural ODE latent path regularization."""
 
@@ -55,11 +67,14 @@ class FlowRegPPO(PPO):
         self.flow_loss_reduction = flow_loss_reduction
         self.flow_update_unit = flow_update_unit
         self.flow_step = 0
+        self.flow_total_updates = 0
+        self.flow_total_skipped = 0
         self._flow_train_call_active = False
         self._flow_train_call_consumed = False
         self.flow_rng = np.random.default_rng(self.seed)
         self._flow_observations: np.ndarray | None = None
         self._flow_episode_starts: np.ndarray | None = None
+        self._flow_latest_metrics: dict[str, float] = {}
 
     def _begin_flow_train_call(self) -> None:
         """Prepare FlowReg frequency state for one PPO train call."""
@@ -105,6 +120,34 @@ class FlowRegPPO(PPO):
             loss_reduction=self.flow_loss_reduction,
         )
 
+    def _record_cached_flow_metrics(
+        self,
+        *,
+        flow_applied: int,
+        flow_losses: list[float],
+        flow_losses_paper_scaled: list[float],
+        flow_losses_mse_mean: list[float],
+        path_lengths: list[float],
+        net_displacements: list[float],
+        acceleration_energies: list[float],
+        ode_error_drifts: list[float],
+    ) -> None:
+        self.logger.record("FlowReg/Applied", flow_applied)
+        self.logger.record("FlowReg/Updates", len(flow_losses))
+        if flow_losses:
+            self._flow_latest_metrics = {
+                "Loss/FlowReg": float(np.mean(flow_losses)),
+                "Loss/FlowReg_PaperScaled": float(np.mean(flow_losses_paper_scaled)),
+                "Loss/FlowReg_MSEMean": float(np.mean(flow_losses_mse_mean)),
+                "Latent/Path_Length": float(np.mean(path_lengths)),
+                "Latent/Net_Displacement": float(np.mean(net_displacements)),
+                "Latent/Acceleration_Energy": float(np.mean(acceleration_energies)),
+                "Latent/ODE_Error_Drift": float(np.mean(ode_error_drifts)),
+            }
+        for key, value in self._flow_latest_metrics.items():
+            self.logger.record(key, value)
+        self.logger.record("FlowReg/TotalUpdates", self.flow_total_updates)
+
     def train(self) -> None:
         """Update PPO and occasionally add FlowReg to the same backward pass."""
         self.policy.set_training_mode(True)
@@ -128,6 +171,10 @@ class FlowRegPPO(PPO):
         entropy_losses = []
         pg_losses, value_losses = [], []
         clip_fractions = []
+        rl_losses = []
+        total_losses = []
+        policy_grad_norms = []
+        flow_grad_norms = []
         flow_losses = []
         flow_losses_paper_scaled = []
         flow_losses_mse_mean = []
@@ -135,6 +182,8 @@ class FlowRegPPO(PPO):
         net_displacements = []
         acceleration_energies = []
         ode_error_drifts = []
+        flow_applied = 0
+        flow_skipped = 0
 
         continue_training = True
         loss = th.zeros((), device=self.device)
@@ -175,10 +224,14 @@ class FlowRegPPO(PPO):
                     entropy_loss = -th.mean(entropy)
                 entropy_losses.append(entropy_loss.item())
 
-                loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
+                rl_loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
+                loss = rl_loss
+                rl_losses.append(rl_loss.item())
                 flow_loss, flow_metrics = self._maybe_compute_flow_loss()
                 if flow_loss is not None:
                     loss = loss + self.lambda_flow * flow_loss
+                    flow_applied += 1
+                    self.flow_total_updates += 1
                     flow_losses.append(flow_metrics["flow_loss"])
                     flow_losses_paper_scaled.append(flow_metrics["flow_loss_paper_scaled"])
                     flow_losses_mse_mean.append(flow_metrics["flow_loss_mse_mean"])
@@ -186,6 +239,9 @@ class FlowRegPPO(PPO):
                     net_displacements.append(flow_metrics["net_displacement"])
                     acceleration_energies.append(flow_metrics["acceleration_energy"])
                     ode_error_drifts.append(flow_metrics["ode_error_drift"])
+                else:
+                    flow_skipped += 1
+                total_losses.append(loss.item())
 
                 with th.no_grad():
                     log_ratio = log_prob - rollout_data.old_log_prob
@@ -199,10 +255,17 @@ class FlowRegPPO(PPO):
                     break
 
                 self.policy.optimizer.zero_grad()
-                if flow_loss is not None:
-                    self.flow_optimizer.zero_grad()
+                self.flow_optimizer.zero_grad()
                 loss.backward()
-                th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                policy_grad_norms.append(_grad_norm(self.policy.parameters()))
+                if flow_loss is not None:
+                    flow_grad_norms.append(_grad_norm(self.flow_model.parameters()))
+                    th.nn.utils.clip_grad_norm_(
+                        list(self.policy.parameters()) + list(self.flow_model.parameters()),
+                        self.max_grad_norm,
+                    )
+                else:
+                    th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
                 self.policy.optimizer.step()
                 if flow_loss is not None:
                     self.flow_optimizer.step()
@@ -210,6 +273,8 @@ class FlowRegPPO(PPO):
             self._n_updates += 1
             if not continue_training:
                 break
+
+        self.flow_total_skipped += flow_skipped
 
         explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
 
@@ -220,6 +285,11 @@ class FlowRegPPO(PPO):
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
+        self.logger.record("train/flow_learning_rate", new_flow_lr)
+        self.logger.record("Loss/RL_Total", float(np.mean(rl_losses)))
+        self.logger.record("Loss/Total", float(np.mean(total_losses)))
+        self.logger.record("GradNorm/Policy", float(np.mean(policy_grad_norms)))
+        self.logger.record("FlowReg/Skipped", self.flow_total_skipped)
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
@@ -228,13 +298,14 @@ class FlowRegPPO(PPO):
             self.logger.record("train/clip_range_vf", clip_range_vf)
 
         if flow_losses:
-            self.logger.record("Loss/FlowReg", float(np.mean(flow_losses)))
-            self.logger.record("Loss/FlowReg_PaperScaled", float(np.mean(flow_losses_paper_scaled)))
-            self.logger.record("Loss/FlowReg_MSEMean", float(np.mean(flow_losses_mse_mean)))
-            self.logger.record("Latent/Path_Length", float(np.mean(path_lengths)))
-            self.logger.record("Latent/Net_Displacement", float(np.mean(net_displacements)))
-            self.logger.record("Latent/Acceleration_Energy", float(np.mean(acceleration_energies)))
-            self.logger.record("Latent/ODE_Error_Drift", float(np.mean(ode_error_drifts)))
-            self.logger.record("FlowReg/Updates", len(flow_losses))
-        else:
-            self.logger.record("FlowReg/Updates", 0)
+            self.logger.record("GradNorm/FlowODE", float(np.mean(flow_grad_norms)))
+        self._record_cached_flow_metrics(
+            flow_applied=flow_applied,
+            flow_losses=flow_losses,
+            flow_losses_paper_scaled=flow_losses_paper_scaled,
+            flow_losses_mse_mean=flow_losses_mse_mean,
+            path_lengths=path_lengths,
+            net_displacements=net_displacements,
+            acceleration_energies=acceleration_energies,
+            ode_error_drifts=ode_error_drifts,
+        )

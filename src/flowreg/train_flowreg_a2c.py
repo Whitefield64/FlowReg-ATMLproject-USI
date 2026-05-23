@@ -20,7 +20,12 @@ from flowreg.config import load_yaml_config
 from flowreg.envs import make_atari_environment
 from flowreg.flowreg_a2c import FlowRegA2C
 from flowreg.policies import build_policy_kwargs
-from flowreg.train_baseline_a2c import _safe_wandb_mode, prepare_a2c_config
+from flowreg.train_baseline_a2c import (
+    _atari_env_kwargs,
+    _atari_wrapper_kwargs,
+    _safe_wandb_mode,
+    prepare_a2c_config,
+)
 from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
 
 torch.set_float32_matmul_precision("high")
@@ -60,6 +65,8 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
         seed=seed,
         n_envs=int(config.get("n_envs", 1)),
         monitor_dir=monitor_dir,
+        env_kwargs=_atari_env_kwargs(config),
+        wrapper_kwargs=_atari_wrapper_kwargs(config),
     )
 
     wandb_run = None

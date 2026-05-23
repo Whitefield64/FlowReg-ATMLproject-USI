@@ -88,6 +88,8 @@ def make_atari_environment(
     seed: int,
     n_envs: int,
     monitor_dir: str | Path | None = None,
+    env_kwargs: dict | None = None,
+    wrapper_kwargs: dict | None = None,
 ) -> VecFrameStack:
     """Create a vectorized Atari environment with standard wrappers (Nature CNN compatible)."""
     env = make_atari_env(
@@ -95,8 +97,9 @@ def make_atari_environment(
         n_envs=n_envs,
         seed=seed,
         monitor_dir=str(monitor_dir) if monitor_dir else None,
+        env_kwargs=env_kwargs,
+        wrapper_kwargs=wrapper_kwargs,
         vec_env_cls=SubprocVecEnv,
     )
     env = VecFrameStack(env, n_stack=4)
     return env
-
