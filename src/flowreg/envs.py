@@ -9,7 +9,7 @@ import gymnasium as gym
 import minigrid  # noqa: F401 - importing registers MiniGrid environments
 from minigrid.wrappers import ImgObsWrapper
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
 import ale_py
 
@@ -95,6 +95,7 @@ def make_atari_environment(
         n_envs=n_envs,
         seed=seed,
         monitor_dir=str(monitor_dir) if monitor_dir else None,
+        vec_env_cls=SubprocVecEnv,
     )
     env = VecFrameStack(env, n_stack=4)
     return env

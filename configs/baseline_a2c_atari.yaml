@@ -2,7 +2,7 @@ run_name: baseline_a2c_atari
 env_id: ALE/Breakout-v5
 seed: 0
 total_timesteps: 10000000
-n_envs: 16
+n_envs: 32
 policy: CnnPolicy
 device: cuda
 wandb_mode: online

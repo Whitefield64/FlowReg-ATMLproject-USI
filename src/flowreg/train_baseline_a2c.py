@@ -22,6 +22,9 @@ from flowreg.envs import make_atari_environment
 from flowreg.policies import build_policy_kwargs
 from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
 
+torch.set_float32_matmul_precision("high")
+torch.backends.cudnn.allow_tf32 = True
+
 
 def _timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
