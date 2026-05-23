@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import stable_baselines3
 import torch
 import wandb
 from dotenv import load_dotenv
@@ -20,28 +17,8 @@ from wandb.integration.sb3 import WandbCallback
 from flowreg.config import load_yaml_config
 from flowreg.envs import make_dummy_vec_env
 from flowreg.policies import build_policy_kwargs
+from flowreg.train_utils import safe_wandb_mode, timestamp, write_config_snapshot
 from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
-
-
-def _timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def _safe_wandb_mode(config_mode: str, cli_mode: str | None) -> str:
-    mode = cli_mode or config_mode or "disabled"
-    if mode not in {"disabled", "offline", "online"}:
-        raise ValueError("wandb mode must be one of: disabled, offline, online")
-    return mode
-
-
-def _write_config_snapshot(config: dict[str, Any], run_dir: Path) -> None:
-    snapshot = dict(config)
-    snapshot["versions"] = {
-        "stable_baselines3": stable_baselines3.__version__,
-        "torch": torch.__version__,
-    }
-    with (run_dir / "config.json").open("w", encoding="utf-8") as handle:
-        json.dump(snapshot, handle, indent=2, sort_keys=True)
 
 
 def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
@@ -49,7 +26,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
     seed = int(config.get("seed", 0))
     env_id = str(config["env_id"])
     run_name = str(config.get("run_name", f"baseline_ppo_{env_id}"))
-    run_id = f"{run_name}_seed{seed}_{_timestamp()}"
+    run_id = f"{run_name}_seed{seed}_{timestamp()}"
     run_dir = Path("runs") / "baseline_ppo" / run_id
     monitor_dir = run_dir / "monitor"
     model_dir = run_dir / "models"
@@ -57,7 +34,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
     monitor_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    _write_config_snapshot(config, run_dir)
+    write_config_snapshot(config, run_dir)
 
     vec_env = make_dummy_vec_env(
         env_id=env_id,
@@ -140,7 +117,7 @@ def main() -> None:
     if args.env_id is not None:
         config["env_id"] = args.env_id
 
-    wandb_mode = _safe_wandb_mode(str(config.get("wandb_mode", "disabled")), args.wandb)
+    wandb_mode = safe_wandb_mode(str(config.get("wandb_mode", "disabled")), args.wandb)
     train_baseline(config, wandb_mode)
 
 

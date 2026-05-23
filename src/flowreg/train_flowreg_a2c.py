@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import stable_baselines3
 import torch
 import wandb
 from dotenv import load_dotenv
@@ -20,53 +17,40 @@ from flowreg.config import load_yaml_config
 from flowreg.envs import make_atari_environment
 from flowreg.flowreg_a2c import FlowRegA2C
 from flowreg.policies import build_policy_kwargs
-from flowreg.train_baseline_a2c import (
-    _atari_env_kwargs,
-    _atari_wrapper_kwargs,
-    _safe_wandb_mode,
+from flowreg.train_utils import (
+    atari_env_kwargs,
+    atari_wrapper_kwargs,
     prepare_a2c_config,
+    safe_wandb_mode,
+    timestamp,
+    write_config_snapshot,
 )
 from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.allow_tf32 = True
 
-
-def _timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def _write_config_snapshot(config: dict[str, Any], run_dir: Path) -> None:
-    snapshot = dict(config)
-    snapshot["versions"] = {
-        "stable_baselines3": stable_baselines3.__version__,
-        "torch": torch.__version__,
-    }
-    with (run_dir / "config.json").open("w", encoding="utf-8") as handle:
-        json.dump(snapshot, handle, indent=2, sort_keys=True)
-
-
 def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
     """Train FlowReg A2C from a config dictionary and return checkpoint path."""
     seed = int(config.get("seed", 0))
     env_id = str(config["env_id"])
     run_name = str(config.get("run_name", f"flowreg_a2c_{env_id}"))
-    run_id = f"{run_name}_seed{seed}_{_timestamp()}"
+    run_id = f"{run_name}_seed{seed}_{timestamp()}"
     run_dir = Path("runs") / "flowreg_a2c" / run_id
     monitor_dir = run_dir / "monitor"
     model_dir = run_dir / "models"
     tensorboard_dir = run_dir / "tensorboard"
     monitor_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
-    _write_config_snapshot(config, run_dir)
+    write_config_snapshot(config, run_dir)
 
     vec_env = make_atari_environment(
         env_id=env_id,
         seed=seed,
         n_envs=int(config.get("n_envs", 1)),
         monitor_dir=monitor_dir,
-        env_kwargs=_atari_env_kwargs(config),
-        wrapper_kwargs=_atari_wrapper_kwargs(config),
+        env_kwargs=atari_env_kwargs(config),
+        wrapper_kwargs=atari_wrapper_kwargs(config),
     )
 
     wandb_run = None
@@ -157,7 +141,7 @@ def main() -> None:
     if args.env_id is not None:
         config["env_id"] = args.env_id
 
-    wandb_mode = _safe_wandb_mode(str(config.get("wandb_mode", "disabled")), args.wandb)
+    wandb_mode = safe_wandb_mode(str(config.get("wandb_mode", "disabled")), args.wandb)
     train_flowreg(config, wandb_mode)
 
 

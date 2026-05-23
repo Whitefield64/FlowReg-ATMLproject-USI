@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import torch as th
 from stable_baselines3 import PPO
@@ -19,7 +24,7 @@ from flowreg.flow import (
 from flowreg.flowreg_a2c import FlowRegA2C
 from flowreg.flowreg_ppo import FlowRegPPO
 from flowreg.policies import build_policy_kwargs
-from flowreg.train_baseline_a2c import prepare_a2c_config
+from flowreg.train_utils import prepare_a2c_config
 
 
 class DummyLogger:
@@ -109,6 +114,35 @@ def test_prepare_a2c_config_linear_learning_rate_schedule() -> None:
     assert a2c_config["learning_rate"](0.0) == 0.0
 
 
+def test_env_module_import_does_not_eagerly_load_pygame_or_cv2() -> None:
+    env = dict(os.environ)
+    repo_root = Path(__file__).resolve().parents[1]
+    src_dir = repo_root / "src"
+    pythonpath = str(src_dir)
+    if env.get("PYTHONPATH"):
+        pythonpath = f"{pythonpath}{os.pathsep}{env['PYTHONPATH']}"
+    env["PYTHONPATH"] = pythonpath
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; "
+                "import flowreg.envs; "
+                "print('pygame' in sys.modules); "
+                "print('cv2' in sys.modules)"
+            ),
+        ],
+        capture_output=True,
+        check=True,
+        env=env,
+        text=True,
+    )
+
+    assert result.stdout.splitlines() == ["False", "False"]
+
+
 def test_make_atari_environment_forwards_env_and_wrapper_kwargs(monkeypatch) -> None:
     captured: dict[str, object] = {}
     raw_env = object()
@@ -122,8 +156,10 @@ def test_make_atari_environment_forwards_env_and_wrapper_kwargs(monkeypatch) -> 
         captured["n_stack"] = n_stack
         return ("stacked", env, n_stack)
 
-    monkeypatch.setattr("flowreg.envs.make_atari_env", fake_make_atari_env)
-    monkeypatch.setattr("flowreg.envs.VecFrameStack", fake_vec_frame_stack)
+    def fake_atari_components():
+        return fake_make_atari_env, object(), fake_vec_frame_stack
+
+    monkeypatch.setattr("flowreg.envs._atari_components", fake_atari_components)
 
     result = make_atari_environment(
         env_id="ALE/Breakout-v5",

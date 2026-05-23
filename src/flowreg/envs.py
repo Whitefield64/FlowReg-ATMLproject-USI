@@ -1,19 +1,33 @@
-"""MiniGrid environment factory used by baseline and future FlowReg agents."""
+"""Environment factories with lazy imports to keep Atari and MiniGrid isolated."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import gymnasium as gym
-import minigrid  # noqa: F401 - importing registers MiniGrid environments
-from minigrid.wrappers import ImgObsWrapper
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecFrameStack
-from stable_baselines3.common.env_util import make_atari_env
-import ale_py
 
-gym.register_envs(ale_py)
+
+@lru_cache(maxsize=1)
+def _minigrid_components():
+    import minigrid  # noqa: F401 - importing registers MiniGrid environments
+    from minigrid.wrappers import ImgObsWrapper
+    from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    return Monitor, DummyVecEnv, ImgObsWrapper
+
+
+@lru_cache(maxsize=1)
+def _atari_components():
+    import ale_py
+    from stable_baselines3.common.env_util import make_atari_env
+    from stable_baselines3.common.vec_env import SubprocVecEnv, VecFrameStack
+
+    gym.register_envs(ale_py)
+    return make_atari_env, SubprocVecEnv, VecFrameStack
 
 
 def make_minigrid_env(
@@ -24,6 +38,8 @@ def make_minigrid_env(
     wrapper: str = "img_flatten",
 ) -> gym.Env:
     """Create a deterministic MiniGrid environment with project-standard wrappers."""
+    Monitor, _dummy_vec_env_cls, ImgObsWrapper = _minigrid_components()
+
     env = gym.make(env_id)
     if wrapper == "img_flatten":
         env = ImgObsWrapper(env)
@@ -67,8 +83,9 @@ def make_dummy_vec_env(
     n_envs: int,
     monitor_dir: str | Path | None = None,
     wrapper: str = "img_flatten",
-) -> DummyVecEnv:
+) -> Any:
     """Create a simple vectorized env. DummyVecEnv is enough for local MiniGrid."""
+    _monitor_cls, DummyVecEnv, _img_obs_wrapper = _minigrid_components()
     return DummyVecEnv(
         [
             make_env_thunk(
@@ -90,8 +107,10 @@ def make_atari_environment(
     monitor_dir: str | Path | None = None,
     env_kwargs: dict | None = None,
     wrapper_kwargs: dict | None = None,
-) -> VecFrameStack:
+) -> Any:
     """Create a vectorized Atari environment with standard wrappers (Nature CNN compatible)."""
+    make_atari_env, SubprocVecEnv, VecFrameStack = _atari_components()
+
     env = make_atari_env(
         env_id=env_id,
         n_envs=n_envs,
