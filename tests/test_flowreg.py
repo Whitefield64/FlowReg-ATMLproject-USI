@@ -9,8 +9,10 @@ from flowreg.eval_baseline import evaluate_checkpoint
 from flowreg.envs import make_dummy_vec_env
 from flowreg.flow import (
     FlowODE,
+    action_conditioned_ode_path,
     compute_flow_loss,
     episode_ids_from_starts,
+    exponential_time_grid,
     flow_loss_values,
     policy_latents,
     sample_flow_trajectories,
@@ -34,6 +36,7 @@ def test_valid_trajectory_starts_skip_episode_boundaries() -> None:
 
 def test_sample_flow_trajectories_shape_and_no_crossing() -> None:
     observations = np.arange(6 * 2 * 3, dtype=np.float32).reshape(6, 2, 3)
+    actions = np.arange(6 * 2, dtype=np.int64).reshape(6, 2)
     episode_starts = np.zeros((6, 2), dtype=bool)
     episode_starts[2, 0] = True
     rng = np.random.default_rng(0)
@@ -44,13 +47,18 @@ def test_sample_flow_trajectories_shape_and_no_crossing() -> None:
         sequence_length=3,
         batch_size=4,
         rng=rng,
+        actions=actions,
     )
 
     assert batch is not None
     assert batch.observations.shape == (4, 3, 3)
+    assert batch.actions is not None
+    assert batch.actions.shape == (4, 2)
     assert batch.episode_ids.shape == (4, 3)
     for step_idx, env_idx in batch.starts:
         assert not episode_starts[step_idx + 1 : step_idx + 3, env_idx].any()
+    for action_row, (step_idx, env_idx) in zip(batch.actions, batch.starts, strict=True):
+        np.testing.assert_array_equal(action_row, actions[step_idx : step_idx + 2, env_idx])
     for episode_id_row in batch.episode_ids:
         assert np.all(episode_id_row == episode_id_row[0])
 
@@ -79,6 +87,13 @@ def test_flow_loss_values_match_paper_scaled_formula() -> None:
     assert th.allclose(mse_mean, expected_mse_mean)
     assert paper_scaled.item() == 11.0
     assert mse_mean.item() == 5.5
+
+
+def test_exponential_time_grid_uses_one_minus_tau() -> None:
+    time_grid = exponential_time_grid(sequence_length=4, gamma=0.99, device=th.device("cpu"))
+
+    expected = th.tensor([0.0, 0.01, 0.0199, 0.029701])
+    assert th.allclose(time_grid, expected)
 
 
 def test_compute_flow_loss_backpropagates_to_feature_extractor_and_ode() -> None:
@@ -148,6 +163,100 @@ def test_compute_flow_loss_backpropagates_to_feature_extractor_and_ode() -> None
     assert metrics["flow_loss_mse_mean"] >= 0
     assert feature_extractor_grad > 0
     assert ode_grad > 0
+
+
+def test_action_conditioned_flow_loss_backpropagates_to_feature_extractor_and_ode() -> None:
+    vec_env = make_dummy_vec_env(
+        env_id="MiniGrid-DoorKey-5x5-v0",
+        seed=0,
+        n_envs=1,
+        wrapper="img_flatten",
+    )
+    model = PPO(
+        "MlpPolicy",
+        vec_env,
+        seed=0,
+        n_steps=16,
+        batch_size=16,
+        n_epochs=1,
+        policy_kwargs=build_policy_kwargs(
+            {
+                "feature_extractor": {
+                    "name": "minigrid_mlp",
+                    "features_dim": 32,
+                    "hidden_dim": 64,
+                }
+            }
+        ),
+    )
+    latent_dim = int(model.policy.features_extractor.features_dim)
+    action_dim = int(vec_env.envs[0].action_space.n)
+    flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=16, action_dim=action_dim)
+
+    obs = []
+    actions = []
+    env = vec_env.envs[0]
+    current_obs, _info = env.reset(seed=0)
+    for _ in range(5):
+        action = env.action_space.sample()
+        obs.append(current_obs)
+        current_obs, _reward, terminated, truncated, _info = env.step(action)
+        actions.append(action)
+        if terminated or truncated:
+            current_obs, _info = env.reset()
+    trajectory_obs = np.asarray(obs, dtype=np.float32)[None, ...]
+    trajectory_actions = np.asarray(actions[:-1], dtype=np.int64)[None, ...]
+
+    loss, metrics = compute_flow_loss(
+        policy=model.policy,
+        flow_model=flow_model,
+        trajectory_obs=trajectory_obs,
+        trajectory_actions=trajectory_actions,
+        action_dim=action_dim,
+        action_conditioned=True,
+        device=model.device,
+        rtol=1e-4,
+        atol=1e-5,
+        representation="features",
+        loss_reduction="paper",
+    )
+    loss.backward()
+
+    feature_extractor_grad = sum(
+        param.grad.abs().sum().item()
+        for param in model.policy.features_extractor.parameters()
+        if param.grad is not None
+    )
+    ode_grad = sum(
+        param.grad.abs().sum().item()
+        for param in flow_model.parameters()
+        if param.grad is not None
+    )
+    vec_env.close()
+
+    assert th.isfinite(loss)
+    assert metrics["flow_loss"] >= 0
+    assert feature_extractor_grad > 0
+    assert ode_grad > 0
+
+
+def test_action_conditioned_ode_path_requires_transition_actions() -> None:
+    flow_model = FlowODE(latent_dim=2, hidden_dim=4, action_dim=3)
+    z0 = th.zeros((2, 2))
+    actions = th.zeros((2, 2), dtype=th.long)
+    time_grid = th.tensor([0.0, 1.0, 2.0])
+
+    ode_path = action_conditioned_ode_path(
+        flow_model=flow_model,
+        z0=z0,
+        actions=actions,
+        action_dim=3,
+        time_grid=time_grid,
+        rtol=1e-4,
+        atol=1e-5,
+    )
+
+    assert ode_path.shape == (2, 3, 2)
 
 
 def test_flow_representations_have_expected_dimensions() -> None:

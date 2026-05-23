@@ -51,6 +51,36 @@ def _write_config_snapshot(config: dict[str, Any], run_dir: Path) -> None:
         json.dump(snapshot, handle, indent=2, sort_keys=True)
 
 
+def _linear_schedule(initial_value: float):
+    """Return an SB3-compatible linear learning-rate schedule."""
+
+    def schedule(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+
+    return schedule
+
+
+def _prepare_a2c_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Build A2C kwargs, supporting a YAML-only learning-rate schedule key."""
+    a2c_config = dict(config.get("a2c", {}))
+    lr_schedule = str(a2c_config.pop("learning_rate_schedule", "constant")).lower()
+    if lr_schedule == "linear":
+        a2c_config["learning_rate"] = _linear_schedule(
+            float(a2c_config.get("learning_rate", 7e-4))
+        )
+    elif lr_schedule not in {"constant", "none"}:
+        raise ValueError("a2c.learning_rate_schedule must be one of: constant, linear")
+    return a2c_config
+
+
+def _atari_env_kwargs(config: dict[str, Any]) -> dict[str, Any]:
+    return dict(config.get("atari_env_kwargs", {}) or {})
+
+
+def _atari_wrapper_kwargs(config: dict[str, Any]) -> dict[str, Any]:
+    return dict(config.get("atari_wrapper_kwargs", {}) or {})
+
+
 def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
     """Train A2C from a config dictionary and return the checkpoint path."""
     seed = int(config.get("seed", 0))
@@ -71,6 +101,8 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
         seed=seed,
         n_envs=int(config.get("n_envs", 1)),
         monitor_dir=monitor_dir,
+        env_kwargs=_atari_env_kwargs(config),
+        wrapper_kwargs=_atari_wrapper_kwargs(config),
     )
 
     wandb_run = None
@@ -99,7 +131,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
             ]
         )
 
-    a2c_config = dict(config.get("a2c", {}))
+    a2c_config = _prepare_a2c_config(config)
     policy_kwargs = build_policy_kwargs(config)
     model = A2C(
         config.get("policy", "CnnPolicy"),

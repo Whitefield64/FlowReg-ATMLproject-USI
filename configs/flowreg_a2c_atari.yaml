@@ -6,8 +6,15 @@ n_envs: 16
 policy: CnnPolicy
 device: mps
 wandb_mode: online
+atari_env_kwargs:
+  frameskip: 1
+  repeat_action_probability: 0.0
+atari_wrapper_kwargs:
+  frame_skip: 4
+  action_repeat_probability: 0.0
 a2c:
   learning_rate: 0.0007
+  learning_rate_schedule: linear
   n_steps: 5
   gamma: 0.99
   gae_lambda: 1.0
@@ -16,15 +23,17 @@ a2c:
   max_grad_norm: 0.5
 flowreg:
   enabled: true
-  lambda_flow: 1.0
+  action_conditioned: true
+  lambda_flow: 0.3
   representation: features
-  loss_reduction: paper
+  loss_reduction: mse_mean
   sequence_length: 5
   batch_size: 32
-  update_freq: 10
+  start_timesteps: 50000
+  update_freq: 5
   update_unit: train_call
   learning_rate: 0.0007
-  hidden_dim: 64
+  hidden_dim: 256
   rtol: 0.0001
   atol: 0.00001
   time_sampling: index

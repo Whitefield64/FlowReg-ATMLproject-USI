@@ -20,7 +20,12 @@ from flowreg.config import load_yaml_config
 from flowreg.envs import make_atari_environment
 from flowreg.flowreg_a2c import FlowRegA2C
 from flowreg.policies import build_policy_kwargs
-from flowreg.train_baseline import _safe_wandb_mode
+from flowreg.train_baseline_a2c import (
+    _atari_env_kwargs,
+    _atari_wrapper_kwargs,
+    _prepare_a2c_config,
+    _safe_wandb_mode,
+)
 from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
 
 
@@ -64,6 +69,8 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
         seed=seed,
         n_envs=int(config.get("n_envs", 1)),
         monitor_dir=monitor_dir,
+        env_kwargs=_atari_env_kwargs(config),
+        wrapper_kwargs=_atari_wrapper_kwargs(config),
     )
 
     wandb_run = None
@@ -92,7 +99,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
             ]
         )
 
-    a2c_config = dict(config.get("a2c", {}))
+    a2c_config = _prepare_a2c_config(config)
     flow_config = dict(config.get("flowreg", {}))
     policy_kwargs = build_policy_kwargs(config)
     model = FlowRegA2C(
@@ -114,6 +121,8 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
         flow_representation=str(flow_config.get("representation", "features")),
         flow_loss_reduction=str(flow_config.get("loss_reduction", "paper")),
         flow_update_unit=str(flow_config.get("update_unit", "optimizer_step")),
+        flow_start_timesteps=int(flow_config.get("start_timesteps", 0)),
+        flow_action_conditioned=bool(flow_config.get("action_conditioned", False)),
         policy_kwargs=policy_kwargs,
         **a2c_config,
     )

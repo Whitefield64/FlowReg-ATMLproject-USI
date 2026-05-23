@@ -30,6 +30,8 @@ class FlowRegA2C(A2C):
         flow_representation: str = "features",
         flow_loss_reduction: str = "paper",
         flow_update_unit: str = "optimizer_step",
+        flow_start_timesteps: int = 0,
+        flow_action_conditioned: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -43,8 +45,17 @@ class FlowRegA2C(A2C):
             raise ValueError("flow_loss_reduction must be one of: paper, mse_mean")
         if flow_update_unit not in {"optimizer_step", "train_call"}:
             raise ValueError("flow_update_unit must be one of: optimizer_step, train_call")
-        
-        self.flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=flow_hidden_dim).to(self.device)
+        if flow_action_conditioned and not isinstance(self.action_space, spaces.Discrete):
+            raise ValueError("action-conditioned FlowReg currently requires a Discrete action space")
+
+        self.flow_action_conditioned = flow_action_conditioned
+        self.flow_action_dim = int(self.action_space.n) if flow_action_conditioned else None
+
+        self.flow_model = FlowODE(
+            latent_dim=latent_dim,
+            hidden_dim=flow_hidden_dim,
+            action_dim=self.flow_action_dim or 0,
+        ).to(self.device)
         self.flow_optimizer = th.optim.RMSprop(self.flow_model.parameters(), lr=flow_learning_rate)
         self._flow_initial_lr = flow_learning_rate
         
@@ -58,12 +69,14 @@ class FlowRegA2C(A2C):
         self.flow_representation = flow_representation
         self.flow_loss_reduction = flow_loss_reduction
         self.flow_update_unit = flow_update_unit
+        self.flow_start_timesteps = flow_start_timesteps
         
         self.flow_step = 0
         self._flow_train_call_active = False
         self._flow_train_call_consumed = False
         self.flow_rng = np.random.default_rng(self.seed)
         self._flow_observations: np.ndarray | None = None
+        self._flow_actions: np.ndarray | None = None
         self._flow_episode_starts: np.ndarray | None = None
         # Persistent logging state — survives across train() calls so that
         # SB3's log-interval (default 100) doesn't overwrite metrics with 0.
@@ -82,6 +95,9 @@ class FlowRegA2C(A2C):
         )
 
     def _maybe_compute_flow_loss(self) -> tuple[th.Tensor | None, dict[str, float]]:
+        if self.num_timesteps < self.flow_start_timesteps:
+            return None, {}
+
         if self.flow_update_unit == "optimizer_step":
             self.flow_step += 1
             if self.flow_update_freq <= 0 or self.flow_step % self.flow_update_freq != 0:
@@ -100,6 +116,7 @@ class FlowRegA2C(A2C):
             sequence_length=self.flow_sequence_length,
             batch_size=self.flow_batch_size,
             rng=self.flow_rng,
+            actions=self._flow_actions if self.flow_action_conditioned else None,
         )
         if batch is None:
             return None, {}
@@ -114,6 +131,9 @@ class FlowRegA2C(A2C):
             gamma=self.gamma,
             representation=self.flow_representation,
             loss_reduction=self.flow_loss_reduction,
+            trajectory_actions=batch.actions,
+            action_dim=self.flow_action_dim,
+            action_conditioned=self.flow_action_conditioned,
         )
 
     def train(self) -> None:
@@ -122,6 +142,7 @@ class FlowRegA2C(A2C):
         self.flow_model.train()
         
         self._flow_observations = self.rollout_buffer.observations.copy()
+        self._flow_actions = self.rollout_buffer.actions.copy()
         self._flow_episode_starts = self.rollout_buffer.episode_starts.copy()
         self._begin_flow_train_call()
         self._update_learning_rate(self.policy.optimizer)
@@ -181,10 +202,12 @@ class FlowRegA2C(A2C):
             self.policy.optimizer.zero_grad()
             if flow_loss is not None:
                 self.flow_optimizer.zero_grad()
-                
+
             loss.backward()
-            
+
             th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+            if flow_loss is not None:
+                th.nn.utils.clip_grad_norm_(self.flow_model.parameters(), self.max_grad_norm)
             self.policy.optimizer.step()
             if flow_loss is not None:
                 self.flow_optimizer.step()

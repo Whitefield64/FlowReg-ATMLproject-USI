@@ -4,9 +4,9 @@ set -e
 # Short smoke test for Breakout and Qbert (100k timesteps each)
 # Run from repository root
 
-TIMESTEPS=100000
+TIMESTEPS=1000000
 
-for env_id in ALE/Breakout-v5 ALE/Qbert-v5; do
+for env_id in ALE/Breakout-v5; do
 
     echo "Running FlowReg A2C on $env_id"
     uv run flowreg-train-flowreg-a2c \
