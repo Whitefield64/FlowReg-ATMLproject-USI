@@ -44,42 +44,55 @@ class FlowRegA2C(A2C):
         flow_update_unit: str = "optimizer_step",
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
-        if flow_representation == "features":
-            latent_dim = int(self.policy.features_extractor.features_dim)
-        elif flow_representation == "actor_latent":
-            latent_dim = int(self.policy.mlp_extractor.latent_dim_pi)
-        else:
-            raise ValueError("flow_representation must be one of: features, actor_latent")
         if flow_loss_reduction not in {"paper", "mse_mean"}:
             raise ValueError("flow_loss_reduction must be one of: paper, mse_mean")
         if flow_update_unit not in {"optimizer_step", "train_call"}:
             raise ValueError("flow_update_unit must be one of: optimizer_step, train_call")
-        
-        self.flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=flow_hidden_dim).to(self.device)
-        self.flow_optimizer = th.optim.RMSprop(self.flow_model.parameters(), lr=flow_learning_rate)
-        self._flow_initial_lr = flow_learning_rate
-        
+        if flow_representation not in {"features", "actor_latent"}:
+            raise ValueError("flow_representation must be one of: features, actor_latent")
+
         self.lambda_flow = lambda_flow
         self.flow_sequence_length = flow_sequence_length
         self.flow_batch_size = flow_batch_size
         self.flow_update_freq = flow_update_freq
+        self.flow_learning_rate = flow_learning_rate
+        self.flow_hidden_dim = flow_hidden_dim
         self.flow_rtol = flow_rtol
         self.flow_atol = flow_atol
         self.flow_time_sampling = flow_time_sampling
         self.flow_representation = flow_representation
         self.flow_loss_reduction = flow_loss_reduction
         self.flow_update_unit = flow_update_unit
+        self.flow_model: FlowODE | None = None
+        self.flow_optimizer: th.optim.Optimizer | None = None
+        self._flow_initial_lr = flow_learning_rate
         
         self.flow_step = 0
         self.flow_total_updates = 0
         self.flow_total_skipped = 0
         self._flow_train_call_active = False
         self._flow_train_call_consumed = False
-        self.flow_rng = np.random.default_rng(self.seed)
+        self.flow_rng: np.random.Generator | None = None
         self._flow_observations: np.ndarray | None = None
         self._flow_episode_starts: np.ndarray | None = None
         self._flow_latest_metrics: dict[str, float] = {}
+        super().__init__(*args, **kwargs)
+        self.flow_rng = np.random.default_rng(self.seed)
+
+    def _setup_model(self) -> None:
+        """Initialize the base A2C model and the training-only ODE regularizer."""
+        super()._setup_model()
+        self._setup_flow_model()
+
+    def _setup_flow_model(self) -> None:
+        """Build FlowReg modules after SB3 has created the policy."""
+        if self.flow_representation == "features":
+            latent_dim = int(self.policy.features_extractor.features_dim)
+        else:
+            latent_dim = int(self.policy.mlp_extractor.latent_dim_pi)
+        self.flow_model = FlowODE(latent_dim=latent_dim, hidden_dim=self.flow_hidden_dim).to(self.device)
+        self.flow_optimizer = th.optim.RMSprop(self.flow_model.parameters(), lr=self.flow_learning_rate)
+        self._flow_initial_lr = self.flow_learning_rate
 
     def _begin_flow_train_call(self) -> None:
         """Prepare FlowReg frequency state for one train call."""
@@ -104,6 +117,7 @@ class FlowRegA2C(A2C):
 
         if self._flow_observations is None or self._flow_episode_starts is None:
             return None, {}
+        assert self.flow_rng is not None
 
         batch = sample_flow_trajectories(
             observations=self._flow_observations,
@@ -158,6 +172,8 @@ class FlowRegA2C(A2C):
     def train(self) -> None:
         """Update A2C and occasionally add FlowReg to the same backward pass."""
         self.policy.set_training_mode(True)
+        assert self.flow_model is not None
+        assert self.flow_optimizer is not None
         self.flow_model.train()
         
         self._flow_observations = self.rollout_buffer.observations.copy()

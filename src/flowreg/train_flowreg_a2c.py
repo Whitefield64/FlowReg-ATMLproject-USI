@@ -25,7 +25,7 @@ from flowreg.train_utils import (
     timestamp,
     write_config_snapshot,
 )
-from flowreg.wandb_utils import WandbGlobalStepCallback, define_wandb_step_metrics
+from flowreg.wandb_utils import AtariPaperMetricsCallback, WandbGlobalStepCallback, define_wandb_step_metrics
 
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.allow_tf32 = True
@@ -54,7 +54,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
     )
 
     wandb_run = None
-    callback = None
+    callbacks = [AtariPaperMetricsCallback()]
     if wandb_mode != "disabled":
         os.environ["WANDB_MODE"] = wandb_mode
         wandb_run = wandb.init(
@@ -67,7 +67,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
             save_code=False,
         )
         define_wandb_step_metrics()
-        callback = CallbackList(
+        callbacks.extend(
             [
                 WandbCallback(
                     model_save_path=str(model_dir / "wandb"),
@@ -78,6 +78,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
                 WandbGlobalStepCallback(),
             ]
         )
+    callback = CallbackList(callbacks)
 
     a2c_config = prepare_a2c_config(config)
     flow_config = dict(config.get("flowreg", {}))

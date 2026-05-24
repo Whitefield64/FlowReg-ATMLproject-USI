@@ -30,6 +30,25 @@ def _atari_components():
     return make_atari_env, SubprocVecEnv, VecFrameStack
 
 
+def _register_atari_envs() -> None:
+    import ale_py
+
+    gym.register_envs(ale_py)
+
+
+def _make_registered_atari_env_factory(env_id: str) -> Callable[..., gym.Env]:
+    def _init(**kwargs) -> gym.Env:
+        _register_atari_envs()
+        render_kwargs = {"render_mode": "rgb_array"}
+        render_kwargs.update(kwargs)
+        try:
+            return gym.make(env_id, **render_kwargs)
+        except TypeError:
+            return gym.make(env_id, **kwargs)
+
+    return _init
+
+
 def make_minigrid_env(
     env_id: str,
     seed: int,
@@ -112,7 +131,7 @@ def make_atari_environment(
     make_atari_env, SubprocVecEnv, VecFrameStack = _atari_components()
 
     env = make_atari_env(
-        env_id=env_id,
+        env_id=_make_registered_atari_env_factory(env_id),
         n_envs=n_envs,
         seed=seed,
         monitor_dir=str(monitor_dir) if monitor_dir else None,

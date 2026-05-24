@@ -29,6 +29,9 @@ evaluation, and ad-hoc analysis.
 - `scripts/atari/tests/run_qbert_1m.sh`: Qbert, baseline and FlowReg, seed 0,
   1M timesteps each.
 
+Atari test scripts use the official Atari configs with shorter 1M runs and
+default to W&B online logging.
+
 All scripts accept:
 
 ```bash

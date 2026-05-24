@@ -7,7 +7,7 @@ TIMESTEPS=1000000
 ENV_ID="ALE/Qbert-v5"
 SEED=0
 BASELINE_CONFIG="configs/atari/baseline_a2c_atari.yaml"
-FLOWREG_CONFIG="configs/atari/tests/flowreg_a2c_atari_stability.yaml"
+FLOWREG_CONFIG="configs/atari/flowreg_a2c_atari.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

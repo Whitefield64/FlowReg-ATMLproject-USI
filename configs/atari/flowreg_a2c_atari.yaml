@@ -4,6 +4,8 @@ flowreg:
   enabled: true
   lambda_flow: 1.0
   representation: features
+  # Atari CNN features are 512-D; PyTorch-style MSE keeps lambda_flow=1 numerically stable.
+  # The paper-scaled loss is still logged as Loss/FlowReg_PaperScaled for reporting.
   loss_reduction: mse_mean
   sequence_length: 5
   batch_size: 32

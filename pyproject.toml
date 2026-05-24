@@ -23,6 +23,9 @@ dev = [
     "pytest>=8.0,<9",
     "ruff>=0.8,<1",
 ]
+demo = [
+    "imageio[ffmpeg]>=2.34",
+]
 
 [project.scripts]
 flowreg-analyze-runs = "flowreg.analyze_runs:main"
@@ -32,6 +35,7 @@ flowreg-train-baseline = "flowreg.train_baseline:main"
 flowreg-train-flowreg = "flowreg.train_flowreg:main"
 flowreg-train-baseline-a2c = "flowreg.train_baseline_a2c:main"
 flowreg-train-flowreg-a2c = "flowreg.train_flowreg_a2c:main"
+flowreg-demo = "flowreg.demo:main"
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]

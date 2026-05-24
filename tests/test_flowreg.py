@@ -226,7 +226,7 @@ def test_make_atari_environment_forwards_env_and_wrapper_kwargs(monkeypatch) -> 
     )
 
     assert result == ("stacked", raw_env, 4)
-    assert captured["env_id"] == "ALE/Breakout-v5"
+    assert callable(captured["env_id"])
     assert captured["n_envs"] == 4
     assert captured["seed"] == 7
     assert captured["env_kwargs"] == {"frameskip": 1, "repeat_action_probability": 0.0}
