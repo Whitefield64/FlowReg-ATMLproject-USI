@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import torch
 import wandb
 from dotenv import load_dotenv
 from stable_baselines3 import PPO
@@ -101,7 +100,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a baseline PPO MiniGrid agent.")
-    parser.add_argument("--config", default="configs/baseline_ppo_fourrooms.yaml")
+    parser.add_argument("--config", default="configs/minigrid/baseline_ppo_fourrooms.yaml")
     parser.add_argument("--timesteps", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--env-id", default=None)

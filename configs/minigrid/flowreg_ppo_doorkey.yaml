@@ -1,0 +1,16 @@
+base_config: baseline_ppo_doorkey.yaml
+run_name: flowreg_ppo_doorkey
+flowreg:
+  enabled: true
+  lambda_flow: 1.0
+  representation: features
+  loss_reduction: paper
+  sequence_length: 5
+  batch_size: 32
+  update_freq: 20
+  update_unit: train_call
+  learning_rate: 0.0003
+  hidden_dim: 64
+  rtol: 0.0001
+  atol: 0.00001
+  time_sampling: index

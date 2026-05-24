@@ -1,0 +1,4 @@
+base_config: ../flowreg_a2c_atari.yaml
+run_name: flowreg_a2c_atari_stability
+flowreg:
+  update_freq: 10

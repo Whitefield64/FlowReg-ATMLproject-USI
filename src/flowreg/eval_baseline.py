@@ -62,7 +62,7 @@ def evaluate_checkpoint(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a MiniGrid PPO or Atari A2C checkpoint.")
-    parser.add_argument("--config", default="configs/baseline_ppo_fourrooms.yaml")
+    parser.add_argument("--config", default="configs/minigrid/baseline_ppo_fourrooms.yaml")
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--episodes", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)

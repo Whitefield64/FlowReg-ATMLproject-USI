@@ -1,0 +1,3 @@
+base_config: ../flowreg_ppo_fourrooms.yaml
+run_name: flowreg_ppo_fourrooms_smoke
+total_timesteps: 20000

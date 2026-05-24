@@ -111,7 +111,7 @@ def train_baseline(config: dict[str, Any], wandb_mode: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a baseline A2C Atari agent.")
-    parser.add_argument("--config", default="configs/baseline_a2c_atari.yaml")
+    parser.add_argument("--config", default="configs/atari/baseline_a2c_atari.yaml")
     parser.add_argument("--timesteps", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--env-id", default=None)

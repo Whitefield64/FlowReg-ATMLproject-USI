@@ -1,0 +1,16 @@
+base_config: baseline_a2c_atari.yaml
+run_name: flowreg_a2c_atari
+flowreg:
+  enabled: true
+  lambda_flow: 1.0
+  representation: features
+  loss_reduction: mse_mean
+  sequence_length: 5
+  batch_size: 32
+  update_freq: 5
+  update_unit: train_call
+  learning_rate: 0.0007
+  hidden_dim: 512
+  rtol: 0.0001
+  atol: 0.00001
+  time_sampling: index

@@ -1,0 +1,5 @@
+base_config: ../flowreg_ppo_fourrooms.yaml
+run_name: flowreg_ppo_fourrooms_lambda01
+total_timesteps: 300000
+flowreg:
+  lambda_flow: 0.1

@@ -114,7 +114,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a FlowReg PPO MiniGrid agent.")
-    parser.add_argument("--config", default="configs/flowreg_ppo_fourrooms_smoke.yaml")
+    parser.add_argument("--config", default="configs/minigrid/flowreg_ppo_fourrooms.yaml")
     parser.add_argument("--timesteps", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--env-id", default=None)

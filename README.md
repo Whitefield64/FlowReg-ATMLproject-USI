@@ -36,13 +36,19 @@ uv run ruff check src scripts tests
 uv run pytest -q
 ```
 
+Repository conventions:
+
+- keep generated analysis outputs under `runs/phase4_validation/`;
+- keep official experiment launchers under `scripts/minigrid/` and `scripts/atari/`;
+- use direct `uv run ...` commands for debugging, evaluation, and ad-hoc analysis.
+
 ### Training
 
 Run the current FourRooms baseline for one seed:
 
 ```bash
 uv run flowreg-train-baseline \
-  --config configs/baseline_ppo_fourrooms.yaml \
+  --config configs/minigrid/baseline_ppo_fourrooms.yaml \
   --seed 0 \
   --wandb online
 ```
@@ -51,7 +57,7 @@ Run the current paper-oriented FourRooms FlowReg setup for one seed:
 
 ```bash
 uv run flowreg-train-flowreg \
-  --config configs/flowreg_ppo_fourrooms.yaml \
+  --config configs/minigrid/flowreg_ppo_fourrooms.yaml \
   --seed 0 \
   --wandb online
 ```
@@ -60,26 +66,19 @@ Run a quick local smoke without uploading to W&B:
 
 ```bash
 uv run flowreg-train-flowreg \
-  --config configs/flowreg_ppo_fourrooms_smoke.yaml \
+  --config configs/minigrid/tests/flowreg_ppo_fourrooms_smoke.yaml \
   --timesteps 20000 \
   --seed 0 \
   --wandb disabled
 ```
 
-Run FourRooms seeds 0, 1, and 2:
+Run the official MiniGrid matrices:
 
 ```bash
-for seed in 0 1 2; do
-  uv run flowreg-train-baseline \
-    --config configs/baseline_ppo_fourrooms.yaml \
-    --seed $seed \
-    --wandb online
-
-  uv run flowreg-train-flowreg \
-    --config configs/flowreg_ppo_fourrooms.yaml \
-    --seed $seed \
-    --wandb online
-done
+bash scripts/minigrid/run_fourrooms_10seeds.sh --dry-run
+bash scripts/minigrid/run_dynamic_obstacles_10seeds.sh --dry-run
+bash scripts/minigrid/run_doorkey_10seeds.sh --dry-run
+bash scripts/minigrid/run_all_minigrid_10seeds.sh --dry-run
 ```
 
 ### Atari A2C On CUDA
@@ -99,49 +98,23 @@ print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "NO CUDA")
 PY
 ```
 
-Run the first diagnostic FlowReg smoke with dimension-mean MSE:
+Run the Atari 1M test jobs:
 
 ```bash
-uv run flowreg-train-flowreg-a2c \
-  --config configs/flowreg_a2c_atari_stability.yaml \
-  --env-id ALE/Breakout-v5 \
-  --seed 0 \
-  --timesteps 100000 \
-  --wandb online
+bash scripts/atari/tests/run_breakout_1m.sh --dry-run
+bash scripts/atari/tests/run_qbert_1m.sh --dry-run
 ```
 
-Run the paper-scaled Breakout smoke:
+Run the official compact Atari matrices:
 
 ```bash
-uv run flowreg-train-baseline-a2c \
-  --config configs/baseline_a2c_atari.yaml \
-  --env-id ALE/Breakout-v5 \
-  --seed 0 \
-  --timesteps 100000 \
-  --wandb online
-
-uv run flowreg-train-flowreg-a2c \
-  --config configs/flowreg_a2c_atari.yaml \
-  --env-id ALE/Breakout-v5 \
-  --seed 0 \
-  --timesteps 100000 \
-  --wandb online
+bash scripts/atari/run_breakout_3seeds_3m.sh --dry-run
+bash scripts/atari/run_qbert_3seeds_3m.sh --dry-run
+bash scripts/atari/run_all_atari_3seeds_3m.sh --dry-run
 ```
 
-Generate the compact final Atari matrix commands:
-
-```bash
-bash scripts/run_atari_full.sh --dry-run
-```
-
-Launch the compact matrix:
-
-```bash
-bash scripts/run_atari_full.sh
-```
-
-The final Atari matrix is Breakout and Qbert, seeds `0` and `1`, baseline plus
-FlowReg, for `10M` timesteps per run. After smoke runs, check W&B for finite
+The compact Atari matrix is Breakout and Qbert, seeds `0`, `1`, and `2`,
+baseline plus FlowReg, for `3M` timesteps per run. After test runs, check W&B for finite
 `Loss/*`, `Latent/*`, and `GradNorm/*`; `FlowReg/TotalUpdates` should be close
 to `timesteps / (n_envs * n_steps * update_freq)`.
 

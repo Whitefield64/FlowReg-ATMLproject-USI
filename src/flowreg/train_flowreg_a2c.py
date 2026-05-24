@@ -125,7 +125,7 @@ def train_flowreg(config: dict[str, Any], wandb_mode: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train a FlowReg A2C Atari agent.")
-    parser.add_argument("--config", default="configs/flowreg_a2c_atari.yaml")
+    parser.add_argument("--config", default="configs/atari/flowreg_a2c_atari.yaml")
     parser.add_argument("--timesteps", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--env-id", default=None)

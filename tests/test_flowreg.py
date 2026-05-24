@@ -6,10 +6,12 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch as th
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import obs_as_tensor
 
+from flowreg.config import load_yaml_config
 from flowreg.eval_baseline import evaluate_checkpoint
 from flowreg.envs import make_atari_environment, make_dummy_vec_env
 from flowreg.flow import (
@@ -33,6 +35,59 @@ class DummyLogger:
 
     def record(self, key: str, value, *args, **kwargs) -> None:
         self.records[key] = value
+
+
+def test_load_yaml_config_merges_relative_base_config(tmp_path: Path) -> None:
+    base_path = tmp_path / "baseline.yaml"
+    child_dir = tmp_path / "flowreg"
+    child_dir.mkdir()
+    child_path = child_dir / "config.yaml"
+
+    base_path.write_text(
+        """
+run_name: baseline
+env_id: MiniGrid-FourRooms-v0
+total_timesteps: 1000000
+ppo:
+  learning_rate: 0.0003
+  n_epochs: 4
+eval:
+  deterministic: true
+""",
+        encoding="utf-8",
+    )
+    child_path.write_text(
+        """
+base_config: ../baseline.yaml
+run_name: flowreg
+ppo:
+  n_epochs: 8
+flowreg:
+  enabled: true
+  lambda_flow: 1.0
+""",
+        encoding="utf-8",
+    )
+
+    config = load_yaml_config(child_path)
+
+    assert config["run_name"] == "flowreg"
+    assert config["env_id"] == "MiniGrid-FourRooms-v0"
+    assert config["total_timesteps"] == 1000000
+    assert config["ppo"] == {"learning_rate": 0.0003, "n_epochs": 8}
+    assert config["eval"] == {"deterministic": True}
+    assert config["flowreg"] == {"enabled": True, "lambda_flow": 1.0}
+    assert "base_config" not in config
+
+
+def test_load_yaml_config_rejects_base_config_cycles(tmp_path: Path) -> None:
+    first_path = tmp_path / "first.yaml"
+    second_path = tmp_path / "second.yaml"
+    first_path.write_text("base_config: second.yaml\nrun_name: first\n", encoding="utf-8")
+    second_path.write_text("base_config: first.yaml\nrun_name: second\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Config inheritance cycle detected"):
+        load_yaml_config(first_path)
 
 
 def test_valid_trajectory_starts_skip_episode_boundaries() -> None:
